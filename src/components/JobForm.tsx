@@ -31,12 +31,40 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
 
   const [importing, setImporting] = useState(false);
 
+  /** A recruiter's LinkedIn post → the job description (who posted it, then the post). */
+  async function fillFromLinkedInPost(link: string, replace = false) {
+    setImporting(true);
+    setLiStatus({ text: 'Reading the post from LinkedIn…' });
+    try {
+      const p = await api.linkedInPost(link);
+      // What will change, judged on the form now; applied to the latest state so nothing typed meanwhile is lost.
+      const filled: string[] = [];
+      if (replace || !d.description?.trim()) filled.push('description');
+      if (d.apply_channel !== 'linkedin') filled.push('applied via LinkedIn');
+      setD((prev) => {
+        const next = { ...prev };
+        if (replace || !prev.description?.trim()) next.description = p.description;
+        next.apply_channel = 'linkedin';
+        // Keep the post in the "LinkedIn post link" field, not as the job posting link.
+        if (!next.apply_contact?.trim() || next.apply_contact === link) next.apply_contact = link;
+        if (next.url === link) next.url = '';
+        return next;
+      });
+      setLiStatus({ text: filled.length ? `Imported the post into the ${filled.join(' and ')}.` : 'Already filled in; nothing changed.' });
+    } catch (e) {
+      setLiStatus({ text: (e as Error).message, error: true });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   /**
    * A LinkedIn job link → fill the form from the posting.
    * Pasting fills only empty fields; the Import button (`replace`) takes LinkedIn's title and description.
    * A posting that's "no longer accepting applications" moves an applied job to Ghosted.
    */
   async function fillFromLinkedInJob(link: string | null | undefined, replace = false) {
+    if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace);
     if (!link || !isLinkedInJob(link)) return;
     setImporting(true);
     setLiStatus({ text: 'Reading the job from LinkedIn…' });
@@ -102,7 +130,10 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
   }, []);
 
   // The posting link, or the "applied via" link when that's the LinkedIn job.
-  const linkedInLink = (isLinkedInJob(d.url ?? '') ? d.url : d.apply_contact) ?? '';
+  // A LinkedIn job link wins; otherwise a LinkedIn post link from either field.
+  const linkedInLink =
+    [d.url, d.apply_contact].find((u) => u && isLinkedInJob(u)) ?? [d.url, d.apply_contact].find((u) => u && isLinkedInPost(u)) ?? '';
+  const canImport = isLinkedInJob(linkedInLink) || isLinkedInPost(linkedInLink);
   // Applied through a LinkedIn job posting: the posting link above says it all, no second link.
   const viaLinkedInJob = d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '');
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
@@ -150,9 +181,9 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
             <button
               type="button"
               className="btn-ghost shrink-0"
-              disabled={importing || !isLinkedInJob(linkedInLink)}
+              disabled={importing || !canImport}
               onClick={() => fillFromLinkedInJob(linkedInLink, true)}
-              title={isLinkedInJob(linkedInLink) ? 'Fill this form from the LinkedIn posting now' : 'Paste a LinkedIn job link first'}
+              title={canImport ? 'Fill this form from LinkedIn now' : 'Paste a LinkedIn job or post link first'}
             >
               <Icon name="linkedin" /> {importing ? 'Importing…' : 'Import from LinkedIn'}
             </button>
@@ -290,3 +321,6 @@ const norm = (n: string) =>
     .filter((w) => w && !['inc', 'llc', 'ltd', 'co', 'the', 'group', 'egypt', 'ksa', 'uae', 'company', 'corp'].includes(w))
     .join(' ');
 const sameName = (a: string, b: string) => !!norm(a) && norm(a) === norm(b);
+
+/** linkedin.com/posts/…, or /feed/update/urn:li:activity:… (a recruiter's post). */
+const isLinkedInPost = (u: string) => /linkedin\.com\/(posts\/|feed\/update\/urn:li:(activity|share|ugcPost):)/i.test(u);

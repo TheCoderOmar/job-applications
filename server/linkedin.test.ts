@@ -84,3 +84,17 @@ test('parseProfilePage reads name, company, role and place (and strips RTL marks
   assert.equal(d.company, 'Valeo');
   assert.equal(d.position, null);
 });
+
+test('isLinkedInPost and parsePostPage', async () => {
+  const { isLinkedInPost, parsePostPage } = await import('./linkedin.js');
+  assert.ok(isLinkedInPost('https://www.linkedin.com/feed/update/urn:li:activity:7517875401915047950/'));
+  assert.ok(isLinkedInPost('https://www.linkedin.com/posts/someone_hiring-wso2-activity-7517875401915047950-AbCd'));
+  assert.ok(!isLinkedInPost('https://www.linkedin.com/jobs/view/4473208616/'));
+  const html = `<script type="application/ld+json">{"@type":"SocialMediaPosting","articleBody":"Hiring a WSO2 engineer &amp; more\\nSend CV to hr@acme.com",
+    "author":{"@type":"Person","name":"Sara Hassan"},"datePublished":"2026-10-01T10:00:00Z"}</script>`;
+  assert.deepEqual(parsePostPage(html), {
+    text: 'Hiring a WSO2 engineer & more\nSend CV to hr@acme.com',
+    author: 'Sara Hassan',
+    posted_at: '2026-10-01T10:00:00Z',
+  });
+});

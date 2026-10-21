@@ -1,7 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { db, seedStages } from './db.js';
 import { resolveMapsLink } from './mapsLink.js';
-import { fetchLinkedInCompany, fetchLinkedInProfile, findLogo } from './linkedin.js';
+import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { fetchLinkedInJob, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
@@ -275,6 +275,13 @@ function descriptionFrom(job: { description: string | null; details: Record<stri
   return [job.description, details].filter(Boolean).join('\n\n') || null;
 }
 
+/** A recruiter's post as a job description: who posted it and when, then the post itself. */
+function postDescription(p: LinkedInPost) {
+  const when = p.posted_at ? new Date(p.posted_at).toISOString().slice(0, 10).split('-').reverse().join('/') : null;
+  const by = [p.author && `Posted by ${p.author}`, when && `on ${when}`].filter(Boolean).join(' ');
+  return [by && `${by} (LinkedIn post)`, p.text].filter(Boolean).join('\n\n');
+}
+
 const fillQueue: number[] = [];
 let filling = false;
 
@@ -293,8 +300,19 @@ function queueDescriptionFill(jobId: number | bigint | string) {
       const j = db.prepare('SELECT id, url, apply_contact, description, location_type FROM jobs WHERE id = ?').get(next) as
         | { id: number; url: string | null; apply_contact: string | null; description: string | null; location_type: string }
         | undefined;
-      const link = j && (linkedInJobId(j.url) ? j.url : linkedInJobId(j.apply_contact) ? j.apply_contact : null);
-      if (!j || j.description?.trim() || !link) continue;
+      if (!j || j.description?.trim()) continue;
+      const post = [j.url, j.apply_contact].find((u) => isLinkedInPost(u));
+      if (post && ![j.url, j.apply_contact].some((u) => linkedInJobId(u))) {
+        try {
+          const p = await fetchLinkedInPost(post!);
+          db.prepare(`UPDATE jobs SET description = COALESCE(NULLIF(description, ''), ?) WHERE id = ?`).run(postDescription(p), j.id);
+        } catch (e) {
+          console.warn(`No LinkedIn post text for job ${j.id}: ${(e as Error).message}`);
+        }
+        continue;
+      }
+      const link = linkedInJobId(j.url) ? j.url : linkedInJobId(j.apply_contact) ? j.apply_contact : null;
+      if (!link) continue;
       try {
         const li = await fetchLinkedInJob(link);
         db.prepare(
@@ -363,6 +381,19 @@ async function checkClosedPostings() {
     checkingPostings = false;
   }
 }
+
+/** Used by the job form: a LinkedIn post link → the post as a job description. */
+app.post(
+  '/api/linkedin/post',
+  wrap(async (req, res) => {
+    try {
+      const p = await fetchLinkedInPost(String(req.body.url ?? ''));
+      res.json({ ...p, description: postDescription(p) });
+    } catch (e) {
+      res.status(422).json({ error: (e as Error).message });
+    }
+  }),
+);
 
 /** Used by the job form: paste a LinkedIn job link, get its details back. */
 app.post(

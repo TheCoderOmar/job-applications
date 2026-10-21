@@ -21,6 +21,11 @@ export const api = {
   createCompany: (data: Partial<Company>) => request<Company>('/api/companies', json('POST', data)),
   updateCompany: (id: number, data: Partial<Company>) => request<Company>(`/api/companies/${id}`, json('PUT', data)),
   deleteCompany: (id: number) => request<void>(`/api/companies/${id}`, { method: 'DELETE' }),
+  linkedInPost: (url: string) =>
+    request<{ text: string | null; author: string | null; posted_at: string | null; description: string }>(
+      '/api/linkedin/post',
+      json('POST', { url }),
+    ),
   linkedInJob: (url: string) =>
     request<{ title: string | null; company: string | null; location: string | null; description: string | null; workplace: 'remote' | 'hybrid' | 'onsite' | null; closed: boolean }>(
       '/api/linkedin/job',

@@ -248,3 +248,49 @@ export async function fetchLinkedInProfile(input: string): Promise<LinkedInProfi
   if (!profile.full_name) throw new Error('LinkedIn did not show this profile publicly. Fill it in by hand.');
   return profile;
 }
+
+// ---------- Posts (recruiters' "we're hiring" posts) ----------
+
+/** linkedin.com/posts/…, /feed/update/urn:li:activity:…, /feed/update/urn:li:share:… */
+export const isLinkedInPost = (url: string | null | undefined) =>
+  /linkedin\.com\/(posts\/|feed\/update\/urn:li:(activity|share|ugcPost):)/i.test(String(url ?? ''));
+
+export interface LinkedInPost {
+  text: string | null;
+  author: string | null;
+  posted_at: string | null;
+}
+
+export function parsePostPage(html: string): LinkedInPost {
+  let post: Record<string, any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const d = JSON.parse(m[1]);
+      for (const o of Array.isArray(d['@graph']) ? d['@graph'] : [d])
+        if (!post && /SocialMediaPosting|DiscussionForumPosting|Article/.test(String(o['@type']))) post = o;
+    } catch {
+      /* not JSON */
+    }
+  }
+  const p = post as Record<string, any> | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const body = p?.articleBody ?? p?.text ?? meta(html, 'og:description');
+  return {
+    text: body ? decode(String(body)).replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || null : null,
+    author: clean(p?.author?.name ?? (Array.isArray(p?.author) ? p.author[0]?.name : null)),
+    posted_at: p?.datePublished ?? null,
+  };
+}
+
+export async function fetchLinkedInPost(url: string): Promise<LinkedInPost> {
+  if (!isLinkedInPost(url)) throw new Error('That is not a LinkedIn post link.');
+  const res = await fetch(url.trim(), {
+    headers: { 'User-Agent': 'facebookexternalhit/1.1', 'Accept-Language': 'en-US,en;q=0.9' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 404) throw new Error('LinkedIn has no post at that link (it may have been deleted).');
+  if (!res.ok) throw new Error(`LinkedIn did not answer (status ${res.status}). Try again in a minute.`);
+  const post = parsePostPage(await res.text());
+  if (!post.text) throw new Error('LinkedIn did not show this post publicly. Paste the text by hand.');
+  return post;
+}

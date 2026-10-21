@@ -66,8 +66,12 @@ export default function FlowChart({ data }: { data: SankeyData }) {
     }
     // Bands leave and arrive in the same order as the bars they connect, so none cross.
     for (const n of graph.nodes as N[]) {
-      (n.sourceLinks as L[] | undefined)?.sort((a, b) => ((a.target as N).y0 ?? 0) - ((b.target as N).y0 ?? 0));
-      (n.targetLinks as L[] | undefined)?.sort((a, b) => ((a.source as N).y0 ?? 0) - ((b.source as N).y0 ?? 0));
+      // Ties (two bars at the same height, e.g. a step that skipped a stage): the nearer one goes first,
+      // so a band that jumps a column runs underneath instead of twisting across the other.
+      const tx = (l: L) => (l.target as N).x0 ?? 0;
+      const sx = (l: L) => (l.source as N).x0 ?? 0;
+      (n.sourceLinks as L[] | undefined)?.sort((a, b) => ((a.target as N).y0 ?? 0) - ((b.target as N).y0 ?? 0) || tx(a) - tx(b));
+      (n.targetLinks as L[] | undefined)?.sort((a, b) => ((a.source as N).y0 ?? 0) - ((b.source as N).y0 ?? 0) || sx(b) - sx(a));
     }
     gen.update(graph);
     return graph;
@@ -105,23 +109,32 @@ export default function FlowChart({ data }: { data: SankeyData }) {
           })}
         </g>
         {(layout.nodes as N[]).map((n) => (
-          <g key={n.index} onMouseMove={(e) => show(e, n.name, n.count, n.color)} onMouseLeave={() => setHover(null)}>
-            <rect x={n.x0} y={n.y0} width={(n.x1 ?? 0) - (n.x0 ?? 0)} height={Math.max(2, (n.y1 ?? 0) - (n.y0 ?? 0))} rx={2} fill={n.color} />
-            <text
-              x={(n.x1 ?? 0) + 6}
-              y={((n.y0 ?? 0) + (n.y1 ?? 0)) / 2}
-              dy="0.35em"
-              fill="#e5edff"
-              fontSize={12}
-              paintOrder="stroke"
-              stroke="#0b1220"
-              strokeWidth={3}
-              strokeLinejoin="round"
-            >
-              {n.name}: {n.count}
-            </text>
-          </g>
+          <rect
+            key={n.index}
+            x={n.x0}
+            y={n.y0}
+            width={(n.x1 ?? 0) - (n.x0 ?? 0)}
+            height={Math.max(2, (n.y1 ?? 0) - (n.y0 ?? 0))}
+            rx={2}
+            fill={n.color}
+            onMouseMove={(e) => show(e, n.name, n.count, n.color)}
+            onMouseLeave={() => setHover(null)}
+          />
         ))}
+        {/* Labels last, on a solid backing, so bands never run through the text. */}
+        {(layout.nodes as N[]).map((n) => {
+          const label = `${n.name}: ${n.count}`;
+          const x = (n.x1 ?? 0) + 6;
+          const y = ((n.y0 ?? 0) + (n.y1 ?? 0)) / 2;
+          return (
+            <g key={`l${n.index}`} pointerEvents="none">
+              <rect x={x - 3} y={y - 9} width={label.length * 6.6 + 6} height={18} rx={4} fill="#0b1220" fillOpacity={0.85} />
+              <text x={x} y={y} dy="0.35em" fill="#e5edff" fontSize={12}>
+                {label}
+              </text>
+            </g>
+          );
+        })}
       </svg>
       </div>
       {hover && (

@@ -532,6 +532,7 @@ app.post('/api/jobs', (req, res) => {
     return info.lastInsertRowid;
   })();
   queueDescriptionFill(id);
+  ghostStaleApplications(); // an old application saved now is ghosted straight away
   res.status(201).json(db.prepare(`${jobSelect} WHERE j.id = ?`).get(id));
 });
 
@@ -554,6 +555,7 @@ app.put('/api/jobs/:id', (req, res) => {
     if (refs) saveReferrers(Number(req.params.id), refs);
   })();
   queueDescriptionFill(req.params.id);
+  ghostStaleApplications(); // an old application saved now is ghosted straight away
   res.json(db.prepare(`${jobSelect} WHERE j.id = ?`).get(req.params.id));
 });
 

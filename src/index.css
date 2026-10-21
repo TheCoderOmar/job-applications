@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-ink text-fg font-sans antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 70% -10%, rgba(59, 130, 246, 0.14), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(29, 78, 216, 0.10), transparent 60%);
+    background-attachment: fixed;
+    color-scheme: dark;
+  }
+  ::selection { background: rgba(59, 130, 246, 0.4); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1e2a44; border-radius: 999px; border: 2px solid #05070d; }
+  ::-webkit-scrollbar-thumb:hover { background: #2b3c60; }
+}
+
+@layer components {
+  .card { @apply bg-surface/80 border border-line rounded-xl backdrop-blur-sm; }
+  .card-hover { @apply transition hover:border-brand/60 hover:shadow-glow; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-brand text-white hover:bg-brand-light shadow-[0_0_20px_-6px_rgba(59,130,246,.8)]; }
+  .btn-ghost { @apply btn border border-line text-fg hover:border-brand/60 hover:bg-raised; }
+  .btn-danger { @apply btn border border-red-500/40 text-red-300 hover:bg-red-500/10; }
+  .input {
+    @apply w-full rounded-lg bg-ink/70 border border-line px-3 py-2 text-sm text-fg placeholder:text-muted/60
+      outline-none transition focus:border-brand focus:shadow-glow;
+  }
+  .label { @apply block text-xs font-medium uppercase tracking-wide text-muted mb-1.5; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .page-title { @apply text-2xl font-semibold tracking-tight; }
+}
+
+/* ---------- Leaflet dark skin ---------- */
+/* Nudge the neutral gray basemap toward the app's blue-black palette. */
+.tiles-base { filter: sepia(0.5) hue-rotate(185deg) saturate(2.2) brightness(0.7); }
+.leaflet-container { background: #05070d; font-family: Inter, system-ui, sans-serif; }
+.leaflet-control-zoom a,
+.leaflet-bar a {
+  background: #0b1220 !important;
+  color: #e5edff !important;
+  border-color: #1e2a44 !important;
+}
+.leaflet-control-zoom a:hover { background: #111a2e !important; color: #60a5fa !important; }
+.leaflet-bar { border: 1px solid #1e2a44 !important; box-shadow: none !important; }
+.leaflet-control-attribution { background: rgba(5, 7, 13, 0.75) !important; color: #8aa0c8 !important; }
+.leaflet-control-attribution a { color: #60a5fa !important; }
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #0b1220;
+  color: #e5edff;
+  border: 1px solid #1e2a44;
+  box-shadow: 0 0 24px -6px rgba(59, 130, 246, 0.6);
+}
+.leaflet-popup-content { margin: 12px 14px; }
+.leaflet-container a.leaflet-popup-close-button { color: #8aa0c8; }
+
+.pin {
+  width: 16px; height: 16px; border-radius: 999px;
+  border: 2px solid #e5edff;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25), 0 0 14px 2px currentColor;
+}
+.pin-onsite { background: #3b82f6; color: #3b82f6; }
+.home-pin {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: grid; place-items: center;
+  background: #e5edff; color: #05070d;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3), 0 0 18px 4px rgba(59, 130, 246, 0.6);
+}
+.pin-remote { background: #22d3ee; color: #22d3ee; border-style: dashed; }

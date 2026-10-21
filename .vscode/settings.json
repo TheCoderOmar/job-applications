@@ -1,0 +1,5 @@
+{
+  "VsCodeTaskButtons.tasks": [
+    { "label": "$(play) Job Tracker", "task": "Start Job Tracker", "tooltip": "Start the app (http://localhost:5173)" }
+  ]
+}

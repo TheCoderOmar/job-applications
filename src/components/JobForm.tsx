@@ -190,7 +190,14 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
               onClick={() => fillFromLinkedInJob(linkedInLink, true)}
               title={canImport ? 'Fill this form from LinkedIn now' : 'Paste a LinkedIn job/post or Workable job link first'}
             >
-              <Icon name={isWorkableJob(linkedInLink) ? 'download' : 'linkedin'} /> {importing ? 'Importing…' : isWorkableJob(linkedInLink) ? 'Import from Workable' : 'Import from LinkedIn'}
+              <Icon name={isWorkableJob(linkedInLink) || !linkedInLink ? 'download' : 'linkedin'} />{' '}
+              {importing
+                ? 'Importing…'
+                : isWorkableJob(linkedInLink)
+                  ? 'Import from Workable'
+                  : linkedInLink
+                    ? 'Import from LinkedIn'
+                    : 'Import job'}
             </button>
           </div>
           {liStatus && <p className={`mt-1.5 text-xs ${liStatus.error ? 'text-red-400' : 'text-muted'}`}>{liStatus.text}</p>}

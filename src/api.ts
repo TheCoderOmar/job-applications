@@ -26,6 +26,16 @@ export const api = {
       '/api/linkedin/post',
       json('POST', { url }),
     ),
+  importJob: (url: string) =>
+    request<{
+      source: 'linkedin' | 'workable';
+      title: string | null;
+      company: string | null;
+      location: string | null;
+      description: string | null;
+      workplace: 'remote' | 'hybrid' | 'onsite' | null;
+      closed: boolean;
+    }>('/api/import/job', json('POST', { url })),
   linkedInJob: (url: string) =>
     request<{ title: string | null; company: string | null; location: string | null; description: string | null; workplace: 'remote' | 'hybrid' | 'onsite' | null; closed: boolean }>(
       '/api/linkedin/job',

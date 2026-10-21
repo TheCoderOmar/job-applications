@@ -3,7 +3,7 @@ import { db, seedStages } from './db.js';
 import { resolveMapsLink } from './mapsLink.js';
 import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
-import { fetchLinkedInJob, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
+import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
 
 const app = express();
@@ -311,10 +311,11 @@ function queueDescriptionFill(jobId: number | bigint | string) {
         }
         continue;
       }
-      const link = linkedInJobId(j.url) ? j.url : linkedInJobId(j.apply_contact) ? j.apply_contact : null;
+      const workable = [j.url, j.apply_contact].find((u) => workableJobRef(u));
+      const link = linkedInJobId(j.url) ? j.url : linkedInJobId(j.apply_contact) ? j.apply_contact : (workable ?? null);
       if (!link) continue;
       try {
-        const li = await fetchLinkedInJob(link);
+        const li = workable && link === workable ? await fetchWorkableJob(link) : await fetchLinkedInJob(link);
         db.prepare(
           `UPDATE jobs SET description = COALESCE(NULLIF(description, ''), ?),
              location_type = CASE WHEN location_type = 'unknown' AND ? IS NOT NULL THEN ? ELSE location_type END,
@@ -381,6 +382,20 @@ async function checkClosedPostings() {
     checkingPostings = false;
   }
 }
+
+/** Used by the job form: a LinkedIn or Workable job link → title, company, description, work type. */
+app.post(
+  '/api/import/job',
+  wrap(async (req, res) => {
+    const url = String(req.body.url ?? '');
+    try {
+      const job = workableJobRef(url) ? await fetchWorkableJob(url) : { ...(await fetchLinkedInJob(url)), source: 'linkedin' as const };
+      res.json({ ...job, description: descriptionFrom(job) });
+    } catch (e) {
+      res.status(422).json({ error: (e as Error).message });
+    }
+  }),
+);
 
 /** Used by the job form: a LinkedIn post link → the post as a job description. */
 app.post(
@@ -1323,7 +1338,10 @@ if (!db.prepare(`SELECT 1 FROM settings WHERE key = 'applied_steps_aligned'`).ge
 
 // Applications saved earlier with a LinkedIn job link but no description.
 for (const { id } of db
-  .prepare(`SELECT id FROM jobs WHERE (description IS NULL OR trim(description) = '') AND (url LIKE '%linkedin.com%' OR apply_contact LIKE '%linkedin.com%')`)
+  .prepare(
+    `SELECT id FROM jobs WHERE (description IS NULL OR trim(description) = '')
+       AND (url LIKE '%linkedin.com%' OR apply_contact LIKE '%linkedin.com%' OR url LIKE '%workable.com%' OR apply_contact LIKE '%workable.com%')`,
+  )
   .all() as { id: number }[])
   queueDescriptionFill(id);
 

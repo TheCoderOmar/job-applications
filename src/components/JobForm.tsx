@@ -59,17 +59,20 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
   }
 
   /**
-   * A LinkedIn job link → fill the form from the posting.
+   * A LinkedIn or Workable job link → fill the form from the posting.
    * Pasting fills only empty fields; the Import button (`replace`) takes LinkedIn's title and description.
    * A posting that's "no longer accepting applications" moves an applied job to Ghosted.
    */
   async function fillFromLinkedInJob(link: string | null | undefined, replace = false) {
     if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace);
-    if (!link || !isLinkedInJob(link)) return;
+    if (!link || !isImportableJob(link)) return;
+    const site = isWorkableJob(link) ? 'Workable' : 'LinkedIn';
     setImporting(true);
-    setLiStatus({ text: 'Reading the job from LinkedIn…' });
+    setLiStatus({ text: `Reading the job from ${site}…` });
     try {
-      const li = await api.linkedInJob(link);
+      const li = await api.importJob(link);
+      // LinkedIn jobs are applied to on LinkedIn; Workable is the company's own careers page.
+      const channel = li.source === 'workable' ? 'website' : 'linkedin';
       const filled: string[] = [];
       const company = li.company ? companies.find((c) => sameName(c.name, li.company!)) : undefined;
       const ghosted = stages.find((s) => s.name.toLowerCase() === 'ghosted');
@@ -77,9 +80,10 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
       const prev = d;
       {
         const next = { ...prev, url: prev.url?.trim() ? prev.url : link };
-        if (next.apply_channel !== 'linkedin') (next.apply_channel = 'linkedin'), filled.push('applied via LinkedIn');
+        if (next.apply_channel !== channel)
+          (next.apply_channel = channel), filled.push(channel === 'linkedin' ? 'applied via LinkedIn' : 'applied via company website');
         // The job link now lives in "Job posting link"; a copy in the applied-via field isn't needed.
-        if (next.apply_contact && isLinkedInJob(next.apply_contact)) next.apply_contact = null;
+        if (next.apply_contact && isImportableJob(next.apply_contact)) next.apply_contact = null;
         const take = (empty: boolean) => replace || empty;
         if (li.title && take(!prev.title?.trim())) (next.title = li.title), filled.push('title');
         if (li.description && take(!prev.description?.trim())) (next.description = li.description), filled.push('description');
@@ -91,10 +95,10 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
         setD(next);
       }
       const notes: string[] = [];
-      if (li.closed) notes.push('LinkedIn says this job is no longer accepting applications.');
+      if (li.closed) notes.push(`${site} says this job is no longer accepting applications.`);
       if (li.company && !company && !isEdit) notes.push(`"${li.company}" isn't in your companies yet; add it first to pick it here.`);
       setLiStatus({
-        text: [filled.length ? `Imported the ${filled.join(', ')} from LinkedIn.` : 'Already up to date.', ...notes].join(' '),
+        text: [filled.length ? `Imported the ${filled.join(', ')} from ${site}.` : 'Already up to date.', ...notes].join(' '),
         error: !!notes.length && !filled.length,
       });
     } catch (e) {
@@ -132,10 +136,11 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
   // The posting link, or the "applied via" link when that's the LinkedIn job.
   // A LinkedIn job link wins; otherwise a LinkedIn post link from either field.
   const linkedInLink =
-    [d.url, d.apply_contact].find((u) => u && isLinkedInJob(u)) ?? [d.url, d.apply_contact].find((u) => u && isLinkedInPost(u)) ?? '';
-  const canImport = isLinkedInJob(linkedInLink) || isLinkedInPost(linkedInLink);
+    [d.url, d.apply_contact].find((u) => u && isImportableJob(u)) ?? [d.url, d.apply_contact].find((u) => u && isLinkedInPost(u)) ?? '';
+  const canImport = isImportableJob(linkedInLink) || isLinkedInPost(linkedInLink);
   // Applied through a LinkedIn job posting: the posting link above says it all, no second link.
-  const viaLinkedInJob = d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '');
+  const viaLinkedInJob =
+    (d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '')) || (d.apply_channel === 'website' && isWorkableJob(d.url ?? ''));
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
   const isEdit = !!initial?.id;
 
@@ -173,7 +178,7 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
           <div className="flex gap-2">
             <input
               className="input"
-              placeholder="https:// (a LinkedIn job link fills in the rest)"
+              placeholder="https:// (a LinkedIn or Workable job link fills in the rest)"
               value={d.url ?? ''}
               onChange={(e) => set('url', e.target.value)}
               onPaste={(e) => fillFromLinkedInJob(e.clipboardData.getData('text').trim())}
@@ -183,9 +188,9 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
               className="btn-ghost shrink-0"
               disabled={importing || !canImport}
               onClick={() => fillFromLinkedInJob(linkedInLink, true)}
-              title={canImport ? 'Fill this form from LinkedIn now' : 'Paste a LinkedIn job or post link first'}
+              title={canImport ? 'Fill this form from LinkedIn now' : 'Paste a LinkedIn job/post or Workable job link first'}
             >
-              <Icon name="linkedin" /> {importing ? 'Importing…' : 'Import from LinkedIn'}
+              <Icon name={isWorkableJob(linkedInLink) ? 'download' : 'linkedin'} /> {importing ? 'Importing…' : isWorkableJob(linkedInLink) ? 'Import from Workable' : 'Import from LinkedIn'}
             </button>
           </div>
           {liStatus && <p className={`mt-1.5 text-xs ${liStatus.error ? 'text-red-400' : 'text-muted'}`}>{liStatus.text}</p>}
@@ -258,7 +263,7 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
           </select>
         </div>
         {viaLinkedInJob ? (
-          <div className="flex items-end pb-2.5 text-sm text-muted">Applied through the LinkedIn job above.</div>
+          <div className="flex items-end pb-2.5 text-sm text-muted">Applied through the job link above.</div>
         ) : (
         <div>
           <label className="label">{CONTACT_LABEL[d.apply_channel ?? ''] ?? 'Where you applied'}</label>
@@ -324,3 +329,7 @@ const sameName = (a: string, b: string) => !!norm(a) && norm(a) === norm(b);
 
 /** linkedin.com/posts/…, or /feed/update/urn:li:activity:… (a recruiter's post). */
 const isLinkedInPost = (u: string) => /linkedin\.com\/(posts\/|feed\/update\/urn:li:(activity|share|ugcPost):)/i.test(u);
+
+/** apply.workable.com/<company>/j/<CODE>… or the short apply.workable.com/j/<CODE> */
+const isWorkableJob = (u: string) => /apply\.workable\.com\/(?:[a-z0-9-]+\/)?j\/[A-Z0-9]{6,}/i.test(u);
+const isImportableJob = (u: string) => isLinkedInJob(u) || isWorkableJob(u);

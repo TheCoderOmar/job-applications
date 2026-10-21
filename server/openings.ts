@@ -499,3 +499,57 @@ export async function fetchLinkedInJob(urlOrId: string): Promise<LinkedInJob> {
   if (!job.title && !job.description) throw new Error('LinkedIn showed a login page instead of the job. Try again in a minute.');
   return job;
 }
+
+// ---------- Workable job pages (apply.workable.com/<account>/j/<code>) ----------
+
+/** "apply.workable.com/acme/j/FC15C6EBF3/apply/?x" → { account: 'acme', code: 'FC15C6EBF3' }; short links have no account. */
+export function workableJobRef(url: string | null | undefined): { account: string | null; code: string } | null {
+  const m = /apply\.workable\.com\/(?:([a-z0-9-]+)\/)?j\/([A-Z0-9]{6,})/i.exec(String(url ?? ''));
+  if (!m) return null;
+  return { account: m[1] && m[1].toLowerCase() !== 'j' ? m[1] : null, code: m[2].toUpperCase() };
+}
+
+/** A Workable job in the same shape as a LinkedIn one, so the form treats both alike. */
+export async function fetchWorkableJob(url: string): Promise<LinkedInJob & { source: 'workable' }> {
+  let ref = workableJobRef(url);
+  if (!ref) throw new Error('That is not a Workable job link (it should look like apply.workable.com/company/j/CODE).');
+  if (!ref.account) {
+    // Short link: Workable redirects it to the company's own page.
+    const res = await get(`https://apply.workable.com/j/${ref.code}`, { redirect: 'manual' });
+    ref = workableJobRef(res.headers.get('location')) ?? ref;
+    if (!ref.account) throw new Error('Could not find the company for that Workable link.');
+  }
+  const res = await get(`https://apply.workable.com/api/v2/accounts/${ref.account}/jobs/${ref.code}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (res.status === 404) throw new Error('Workable has no job at that link (it may have been removed).');
+  if (!res.ok) throw new Error(`Workable did not answer (status ${res.status}).`);
+  const j = (await res.json()) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  const company = await get(`https://apply.workable.com/api/v1/widget/accounts/${ref.account}`, { headers: { Accept: 'application/json' } })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((w: any) => (w?.name as string) ?? null) // eslint-disable-line @typescript-eslint/no-explicit-any
+    .catch(() => null);
+
+  const places = (j.locations?.length ? j.locations : [j.location]).filter(Boolean);
+  const location = places.map((l: any) => [l.city, l.country].filter(Boolean).join(', ')).filter(Boolean).join(' · ') || null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const section = (title: string, html: string | null | undefined) => (html ? `${title}\n${htmlToText(html)}` : null);
+  const description = [htmlToText(j.description ?? ''), section('Requirements', j.requirements), section('Benefits', j.benefits)]
+    .filter(Boolean)
+    .join('\n\n');
+  const wp = String(j.workplace ?? '').toLowerCase();
+  const details: Record<string, string> = {};
+  if (j.type) details['Employment type'] = j.type === 'full' ? 'Full-time' : j.type === 'part' ? 'Part-time' : String(j.type);
+  if (j.department?.length) details.Department = [].concat(j.department).join(', ');
+  if (location) details.Locations = location;
+  return {
+    source: 'workable',
+    title: j.title ?? null,
+    company,
+    location,
+    description: description || null,
+    workplace: wp === 'remote' || j.remote ? 'remote' : wp === 'hybrid' ? 'hybrid' : wp === 'on_site' || wp === 'onsite' ? 'onsite' : null,
+    details,
+    closed: j.state !== 'published',
+  };
+}

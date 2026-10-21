@@ -120,3 +120,11 @@ test('parseLinkedInJob turns the posting into plain text and details', async () 
   assert.equal(j.closed, false);
   assert.equal(parseLinkedInJob('<figcaption class="closed-job__flavor--closed">No longer accepting applications</figcaption>').closed, true);
 });
+
+test('workableJobRef reads Workable job links', async () => {
+  const { workableJobRef } = await import('./openings.js');
+  assert.deepEqual(workableJobRef('https://apply.workable.com/innovationteam/j/FC15C6EBF3/apply/?success'), { account: 'innovationteam', code: 'FC15C6EBF3' });
+  assert.deepEqual(workableJobRef('https://apply.workable.com/j/FC15C6EBF3'), { account: null, code: 'FC15C6EBF3' });
+  assert.equal(workableJobRef('https://apply.workable.com/innovationteam/'), null);
+  assert.equal(workableJobRef('https://www.linkedin.com/jobs/view/1'), null);
+});

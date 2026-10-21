@@ -440,6 +440,8 @@ export function linkedInJobId(url: string | null | undefined): string | null {
 export interface LinkedInJob {
   title: string | null;
   company: string | null;
+  /** The hiring company's LinkedIn page, when the posting links it. */
+  company_linkedin: string | null;
   location: string | null;
   description: string | null;
   workplace: 'remote' | 'hybrid' | 'onsite' | null;
@@ -481,6 +483,10 @@ export function parseLinkedInJob(html: string): LinkedInJob {
   return {
     title: pick(/topcard__title[^>]*>([\s\S]*?)<\/h[12]>/),
     company: pick(/topcard__org-name-link[^>]*>([\s\S]*?)<\/a>/),
+    company_linkedin:
+      /topcard__org-name-link[^>]*href="(https:\/\/[a-z.]*linkedin\.com\/company\/[^"?]+)/
+        .exec(html)?.[1]
+        ?.replace(/^https:\/\/[a-z]+\.linkedin/, 'https://www.linkedin') ?? null,
     location,
     description,
     workplace,
@@ -546,6 +552,7 @@ export async function fetchWorkableJob(url: string): Promise<LinkedInJob & { sou
     source: 'workable',
     title: j.title ?? null,
     company,
+    company_linkedin: null,
     location,
     description: description || null,
     workplace: wp === 'remote' || j.remote ? 'remote' : wp === 'hybrid' ? 'hybrid' : wp === 'on_site' || wp === 'onsite' ? 'onsite' : null,

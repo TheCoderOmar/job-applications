@@ -31,6 +31,7 @@ export const api = {
       source: 'linkedin' | 'workable';
       title: string | null;
       company: string | null;
+      company_linkedin: string | null;
       location: string | null;
       description: string | null;
       workplace: 'remote' | 'hybrid' | 'onsite' | null;

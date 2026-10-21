@@ -32,19 +32,28 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   const [liStatus, setLiStatus] = useState<{ text: string; error?: boolean } | null>(null);
 
   const [importing, setImporting] = useState(false);
-  // Company named on the imported posting but not in your list yet: one click adds it and picks it.
-  const [missingCompany, setMissingCompany] = useState<string | null>(null);
-  async function addMissingCompany() {
-    if (!missingCompany) return;
-    try {
-      const c = await api.createCompany({ name: missingCompany });
-      setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
-      setD((prev) => ({ ...prev, company_id: c.id }));
-      setMissingCompany(null);
-      setLiStatus({ text: `Added ${c.name} to your companies and picked it.` });
-    } catch (e) {
-      setLiStatus({ text: (e as Error).message, error: true });
+  /**
+   * Company named on an imported posting but not in your list yet. It's picked in the form as
+   * "<name> (new)" (company_id NEW_COMPANY) and created only when you save, from its LinkedIn page when known.
+   */
+  const [newCompany, setNewCompany] = useState<{ name: string; linkedin: string | null } | null>(null);
+  async function createNewCompany(): Promise<number> {
+    const nc = newCompany!;
+    let details: Partial<Company> = {};
+    if (nc.linkedin) {
+      try {
+        const li = await api.linkedInCompany(nc.linkedin);
+        const { existing, logo_url: _l, name: _n, ...rest } = li;
+        if (existing) return existing.id; // already there under its LinkedIn name
+        details = rest;
+      } catch {
+        details = { linkedin: nc.linkedin };
+      }
     }
+    const c = await api.createCompany({ ...details, name: nc.name });
+    setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewCompany(null);
+    return c.id;
   }
 
   /** A recruiter's LinkedIn post → the job description (who posted it, then the post). */
@@ -106,6 +115,7 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
         if (li.workplace && (replace || !prev.location_type || prev.location_type === 'unknown'))
           (next.location_type = li.workplace), filled.push('work type');
         if (company && !isEdit && company.id !== prev.company_id) (next.company_id = company.id), filled.push('company');
+        if (li.company && !company && !isEdit) (next.company_id = NEW_COMPANY), filled.push('company (new)');
         const current = stages.find((s) => s.id === prev.stage_id);
         if (li.closed && ghosted && current?.kind === 'active' && current.sort_order > 0) (next.stage_id = ghosted.id), filled.push('stage (Ghosted)');
         setD(next);
@@ -113,9 +123,9 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
       const notes: string[] = [];
       if (li.closed) notes.push(`${site} says this job is no longer accepting applications.`);
       if (li.company && !company && !isEdit) {
-        notes.push(`"${li.company}" isn't in your companies yet.`);
-        setMissingCompany(li.company);
-      } else setMissingCompany(null);
+        notes.push(`${li.company} isn't in your companies yet; it's added when you save.`);
+        setNewCompany({ name: li.company, linkedin: li.company_linkedin ?? null });
+      } else setNewCompany(null);
       setLiStatus({
         text: [filled.length ? `Imported the ${filled.join(', ')} from ${site}.` : 'Already up to date.', ...notes].join(' '),
         error: !!notes.length && !filled.length,
@@ -177,7 +187,9 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
     setError('');
     try {
       const { referrers: _r, history: _h, ...fields } = d as Partial<Job> & { referrers?: unknown; history?: unknown };
-      const body = { ...fields, referrer_ids: referrers.map((c) => c.id) };
+      // A company found on the posting but not in your list is created now, at save time.
+      const company_id = fields.company_id === NEW_COMPANY ? await createNewCompany() : fields.company_id;
+      const body = { ...fields, company_id, referrer_ids: referrers.map((c) => c.id) };
       const saved = isEdit ? await api.updateJob(initial!.id!, body) : await api.createJob(body);
       onSaved(saved);
     } catch (err) {
@@ -228,11 +240,6 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
             </button>
           </div>
           {liStatus && <p className={`mt-1.5 text-xs ${liStatus.error ? 'text-red-400' : 'text-muted'}`}>{liStatus.text}</p>}
-          {missingCompany && (
-            <button type="button" className="btn-ghost mt-2 px-2.5 py-1 text-xs" onClick={addMissingCompany}>
-              <Icon name="plus" /> Add "{missingCompany}" as a company
-            </button>
-          )}
         </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -248,6 +255,7 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
             onChange={(e) => set('company_id', Number(e.target.value))}
             disabled={!!initial?.company_id && !isEdit}
           >
+            {newCompany && <option value={NEW_COMPANY}>{newCompany.name} (new)</option>}
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -345,7 +353,7 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
         <button type="button" className="btn-ghost" onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn-primary" disabled={saving}>
+        <button className="btn-primary" disabled={saving || importing} title={importing ? "Wait for the import to finish" : undefined}>
           {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add job'}
         </button>
       </div>
@@ -372,3 +380,6 @@ const isLinkedInPost = (u: string) => /linkedin\.com\/(posts\/|feed\/update\/urn
 /** apply.workable.com/<company>/j/<CODE>… or the short apply.workable.com/j/<CODE> */
 const isWorkableJob = (u: string) => /apply\.workable\.com\/(?:[a-z0-9-]+\/)?j\/[A-Z0-9]{6,}/i.test(u);
 const isImportableJob = (u: string) => isLinkedInJob(u) || isWorkableJob(u);
+
+/** Placeholder company id: "a new company from the imported posting, created on save". */
+const NEW_COMPANY = -1;

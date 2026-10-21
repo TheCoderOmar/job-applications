@@ -128,3 +128,12 @@ test('workableJobRef reads Workable job links', async () => {
   assert.equal(workableJobRef('https://apply.workable.com/innovationteam/'), null);
   assert.equal(workableJobRef('https://www.linkedin.com/jobs/view/1'), null);
 });
+
+test('parseLinkedInJob reads the hiring company link', async () => {
+  const { parseLinkedInJob } = await import('./openings.js');
+  const j = parseLinkedInJob(
+    '<a class="topcard__org-name-link topcard__flavor--black-link" href="https://sa.linkedin.com/company/2pcompanysa?trk=x">2P Perfect Presentation</a>',
+  );
+  assert.equal(j.company, '2P Perfect Presentation');
+  assert.equal(j.company_linkedin, 'https://www.linkedin.com/company/2pcompanysa');
+});

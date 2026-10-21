@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, useRef } from 'react';
 import { api } from '../api';
 import { CHANNEL_LABELS, type ApplyChannel, type Company, type Contact, type Job, type JobDetail, type Stage } from '../types';
 import { ReferrerPicker } from './Contacts';
@@ -11,6 +11,8 @@ interface Props {
   initial?: Partial<Job> & { referrers?: Contact[] };
   onSaved: (j: Job) => void;
   onCancel: () => void;
+  /** A job link to import as soon as the form is ready (from the browser extension). */
+  autoImport?: string;
 }
 
 const CONTACT_LABEL: Record<string, string> = {
@@ -21,7 +23,7 @@ const CONTACT_LABEL: Record<string, string> = {
   other: 'Where you applied',
 };
 
-export default function JobForm({ initial, onSaved, onCancel }: Props) {
+export default function JobForm({ initial, onSaved, onCancel, autoImport }: Props) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
   const [d, setD] = useState<Partial<Job>>({ location_type: 'unknown', ...initial });
@@ -120,6 +122,14 @@ export default function JobForm({ initial, onSaved, onCancel }: Props) {
     if (initial?.id) api.job(initial.id).then(setSaved);
   }, [initial?.id]);
   const [saving, setSaving] = useState(false);
+
+  // From the browser extension: once companies and stages are loaded (so the company can be matched), import once.
+  const autoImported = useRef(false);
+  useEffect(() => {
+    if (!autoImport || autoImported.current || !companies.length || !stages.length) return;
+    autoImported.current = true;
+    if (isImportableJob(autoImport) || isLinkedInPost(autoImport)) fillFromLinkedInJob(autoImport, true);
+  }, [autoImport, companies, stages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     Promise.all([api.companies(), api.stages()]).then(([c, s]) => {

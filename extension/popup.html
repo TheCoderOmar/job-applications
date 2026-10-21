@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon48.png" alt="" width="28" height="28" />
+      <strong>Job Tracker</strong>
+      <span id="status" class="status" title="Is the app running?"></span>
+    </header>
+
+    <p id="kind" class="kind"></p>
+    <p id="title" class="title"></p>
+
+    <button id="import" class="primary">Import to Job Tracker</button>
+    <p id="hint" class="hint"></p>
+
+    <details>
+      <summary>App address</summary>
+      <input id="app" placeholder="http://localhost:5173" />
+      <p class="hint">Where the Job Tracker opens. Start it with <code>npm run dev</code>.</p>
+    </details>
+
+    <script src="shared.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

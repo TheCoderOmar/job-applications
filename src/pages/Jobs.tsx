@@ -27,7 +27,10 @@ export default function Jobs() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [view, setView] = useState<View>(savedView);
   const [q, setQ] = useState('');
-  const [adding, setAdding] = useState(params.get('new') === '1');
+  // ?import=<job link>&title=<page title>: sent by the browser extension.
+  const importUrl = params.get('import') ?? '';
+  const importTitle = params.get('title') ?? '';
+  const [adding, setAdding] = useState(params.get('new') === '1' || !!importUrl);
   // Full application (with referrers) being edited from the list.
   const [editing, setEditing] = useState<JobDetail | null>(null);
   const edit = (j: Job) => api.job(j.id).then(setEditing);
@@ -51,6 +54,12 @@ export default function Jobs() {
     api.stages().then(setStages);
     api.companies().then(setCompanies);
   }, []);
+
+  const clearImportParams = () => {
+    const next = new URLSearchParams(params);
+    ['new', 'import', 'title'].forEach((k) => next.delete(k));
+    setParams(next, { replace: true });
+  };
 
   const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params);
@@ -244,13 +253,19 @@ export default function Jobs() {
           wide
           onClose={() => {
             setAdding(false);
-            setParam('new', '');
+            clearImportParams();
           }}
         >
           <JobForm
-            onCancel={() => setAdding(false)}
+            initial={importUrl ? { url: importUrl, title: importTitle || undefined } : undefined}
+            autoImport={importUrl || undefined}
+            onCancel={() => {
+              setAdding(false);
+              clearImportParams();
+            }}
             onSaved={() => {
               setAdding(false);
+              clearImportParams();
               load();
             }}
           />

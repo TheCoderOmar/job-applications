@@ -65,3 +65,13 @@ npm test
 - Search by words ("java cairo"), filter by company or source, star openings, hide ones you don't want, and see "New this week" or ones that have closed since the last check.
 - **I applied** turns an opening into an application (Applied today, via LinkedIn or the website) and opens it so you can add referrers.
 - If a company only has a LinkedIn *search* link, the check looks for its real company page by exact name and saves it, which also fetches its logo.
+
+## Browser extension (Chrome / Edge)
+
+Import the job you're looking at straight into the app.
+
+1. Open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked** and pick the `extension` folder.
+2. Pin **Job Tracker Importer**. With the app running (`npm run dev`), open a LinkedIn job, a LinkedIn post or a Workable job and click the icon → **Import to Job Tracker**.
+3. The app opens **Log application** already filled in (title, company, description, how you applied). Check it and save.
+
+You can also right-click a job link (or any page) → **Import this job to Job Tracker**. Other sites get their link and page title filled in. The popup shows a green dot when the app is reachable; change the app address under **App address** if it isn't `http://localhost:5173`. After changing extension files, click **Reload** on its card in the extensions page.

@@ -69,13 +69,42 @@ export default function Jobs() {
     }
   };
 
+  const [sort, setSortState] = useState<Sort>(savedSort);
+  const setSort = (key: SortKey) =>
+    setSortState((prev) => {
+      // Same column flips the direction; a new column starts newest / furthest first for dates and stages.
+      const next: Sort = prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'title' || key === 'company' ? 'asc' : 'desc' };
+      try {
+        localStorage.setItem('jobs-sort', JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+
   const shown = useMemo(() => {
     const needle = q.toLowerCase();
-    if (!needle) return jobs;
-    return jobs.filter((j) =>
-      [j.title, j.company_name, j.description, j.notes].some((v) => v?.toLowerCase().includes(needle)),
-    );
-  }, [jobs, q]);
+    const list = needle
+      ? jobs.filter((j) => [j.title, j.company_name, j.description, j.notes].some((v) => v?.toLowerCase().includes(needle)))
+      : [...jobs];
+    if (sort.key === 'default') return list; // starred first, then recently updated (from the server)
+    const val = (j: Job): string | number =>
+      sort.key === 'applied'
+        ? (j.applied_date ?? '')
+        : sort.key === 'stage'
+          ? // How far along: offers on top, open stages by progress, closed ones (rejected, ghosted…) at the bottom.
+            (j.stage_kind === 'closed_won' ? 1000 : j.stage_kind === 'closed_lost' ? -1000 : 0) + j.stage_order
+          : sort.key === 'company'
+            ? j.company_name.toLowerCase()
+            : j.title.toLowerCase();
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return list.sort((a, b) => {
+      const [x, y] = [val(a), val(b)];
+      // Empty dates always go last, whichever direction.
+      if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1;
+      return (x < y ? -1 : x > y ? 1 : 0) * dir || (b.applied_date ?? '').localeCompare(a.applied_date ?? '');
+    });
+  }, [jobs, q, sort]);
 
   async function toggleStar(job: Job) {
     const starred = !job.starred;
@@ -191,7 +220,7 @@ export default function Jobs() {
       </div>
 
       {view === 'table' ? (
-        <JobTable jobs={shown} stages={stages} onStage={moveJob} onStar={toggleStar} onEdit={edit} />
+        <JobTable jobs={shown} stages={stages} onStage={moveJob} onStar={toggleStar} onEdit={edit} sort={sort} onSort={setSort} />
       ) : (
         <Board jobs={shown} stages={stages} onMove={moveJob} onStar={toggleStar} onEdit={edit} />
       )}
@@ -237,13 +266,32 @@ function JobTable({
   onStage,
   onStar,
   onEdit,
+  sort,
+  onSort,
 }: {
   jobs: Job[];
   stages: Stage[];
   onStage: (id: number, s: number) => void;
   onStar: (j: Job) => void;
   onEdit: (j: Job) => void;
+  sort: Sort;
+  onSort: (k: SortKey) => void;
 }) {
+  const Th = ({ k, children }: { k?: SortKey; children: string }) =>
+    k ? (
+      <th className="px-4 py-3 font-medium" aria-sort={sort.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <button
+          onClick={() => onSort(k)}
+          className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-fg ${sort.key === k ? 'text-brand-light' : ''}`}
+          title={`Sort by ${children.toLowerCase()}`}
+        >
+          {children}
+          <Icon name={sort.key === k && sort.dir === 'asc' ? 'up' : 'down'} className={`h-3 w-3 ${sort.key === k ? '' : 'opacity-30'}`} />
+        </button>
+      </th>
+    ) : (
+      <th className="px-4 py-3 font-medium">{children}</th>
+    );
   if (jobs.length === 0) return <div className="card p-10 text-center text-muted">No jobs match.</div>;
   return (
     <div className="card overflow-x-auto">
@@ -251,12 +299,12 @@ function JobTable({
         <thead>
           <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
             <th className="w-10 px-2 py-3" aria-label="Starred" />
-            <th className="px-4 py-3 font-medium">Job</th>
-            <th className="px-4 py-3 font-medium">Company</th>
-            <th className="px-4 py-3 font-medium">Type</th>
-            <th className="px-4 py-3 font-medium">Applied</th>
-            <th className="px-4 py-3 font-medium">Via</th>
-            <th className="px-4 py-3 font-medium">Stage</th>
+            <Th k="title">Job</Th>
+            <Th k="company">Company</Th>
+            <Th>Type</Th>
+            <Th k="applied">Applied</Th>
+            <Th>Via</Th>
+            <Th k="stage">Stage</Th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
@@ -384,3 +432,16 @@ function Board({
     </div>
   );
 }
+
+type SortKey = 'default' | 'title' | 'company' | 'applied' | 'stage';
+type Sort = { key: SortKey; dir: 'asc' | 'desc' };
+
+const savedSort = (): Sort => {
+  try {
+    const v = JSON.parse(localStorage.getItem('jobs-sort') ?? 'null');
+    if (v && ['title', 'company', 'applied', 'stage'].includes(v.key) && ['asc', 'desc'].includes(v.dir)) return v;
+  } catch {
+    /* storage unavailable */
+  }
+  return { key: 'default', dir: 'desc' };
+};

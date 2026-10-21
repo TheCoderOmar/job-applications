@@ -38,15 +38,39 @@ export default function FlowChart({ data }: { data: SankeyData }) {
       .nodeAlign(sankeyLeft)
       .nodeWidth(10)
       .nodePadding(22)
+      // No relaxation passes: every column stacks from the top in RANK order, so columns line up
+      // instead of drifting to different heights.
+      .iterations(0)
       .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind] || (b.value ?? 0) - (a.value ?? 0))
       .extent([
         [2, 8],
         [width - LABEL_ROOM, height - 8],
       ]);
-    return gen({
+    const graph = gen({
       nodes: data.nodes.map((n, index) => ({ ...n, index })),
       links: data.links.map((l) => ({ ...l })),
     });
+    // Stack every column from the top in RANK order (progress, waiting, no reply, closed) so all
+    // columns start at the same height, then let d3 re-route the bands to the new positions.
+    const columns = new Map<number, N[]>();
+    for (const n of graph.nodes as N[]) columns.set(Math.round(n.x0 ?? 0), [...(columns.get(Math.round(n.x0 ?? 0)) ?? []), n]);
+    for (const col of columns.values()) {
+      col.sort((a, b) => RANK[a.kind] - RANK[b.kind] || (b.value ?? 0) - (a.value ?? 0));
+      let y = 8;
+      for (const n of col) {
+        const h = (n.y1 ?? 0) - (n.y0 ?? 0);
+        n.y0 = y;
+        n.y1 = y + h;
+        y += h + 22;
+      }
+    }
+    // Bands leave and arrive in the same order as the bars they connect, so none cross.
+    for (const n of graph.nodes as N[]) {
+      (n.sourceLinks as L[] | undefined)?.sort((a, b) => ((a.target as N).y0 ?? 0) - ((b.target as N).y0 ?? 0));
+      (n.targetLinks as L[] | undefined)?.sort((a, b) => ((a.source as N).y0 ?? 0) - ((b.source as N).y0 ?? 0));
+    }
+    gen.update(graph);
+    return graph;
   }, [data, width, height]);
 
   if (!layout) return null;

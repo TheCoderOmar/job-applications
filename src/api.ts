@@ -81,6 +81,15 @@ export const api = {
   appliedToOpening: (id: number) => request<Job>(`/api/openings/${id}/applied`, { method: 'POST' }),
   scanStatus: () => request<ScanStatus>('/api/openings/status'),
   scanOpenings: (company_ids?: number[]) => request<ScanStatus>('/api/openings/scan', json('POST', company_ids ? { company_ids } : {})),
+  linkedInProfile: (url: string) =>
+    request<{
+      linkedin_url: string;
+      full_name: string | null;
+      company: string | null;
+      position: string | null;
+      location: string | null;
+      existing: { id: number; full_name: string } | null;
+    }>('/api/linkedin/profile', json('POST', { url })),
   connectionsAt: (companyId: number | string) => request<Contact[]>(`/api/companies/${companyId}/connections`),
   home: () => request<Home | null>('/api/home'),
   setHome: (data: { link?: string; lat?: number | null; lng?: number | null; label?: string }) =>

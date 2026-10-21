@@ -235,6 +235,38 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
   const [d, setD] = useState<Partial<Contact>>(initial);
   const [error, setError] = useState('');
   const [companies, setCompanies] = useState<string[]>([]);
+  const [li, setLi] = useState<{ text: string; error?: boolean; existing?: { id: number; full_name: string } | null } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  /** Fill the form from a public LinkedIn profile. The company is matched to your list when it's there. */
+  async function importProfile() {
+    if (!d.linkedin_url?.trim()) return;
+    setImporting(true);
+    setLi({ text: 'Reading the profile from LinkedIn…' });
+    try {
+      const p = await api.linkedInProfile(d.linkedin_url);
+      const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '');
+      const company = p.company ? (companies.find((c) => norm(c) === norm(p.company!)) ?? p.company) : null;
+      const filled: string[] = [];
+      const next = { ...d, linkedin_url: p.linkedin_url };
+      if (p.full_name) (next.full_name = p.full_name), filled.push('name');
+      if (company) (next.company = company), filled.push('company');
+      if (p.position) (next.position = p.position), filled.push('position');
+      setD(next);
+      const other = p.existing && p.existing.id !== initial.id ? p.existing : null;
+      setLi({
+        text: other
+          ? `${other.full_name} is already in your contacts.`
+          : `Imported the ${filled.length > 1 ? `${filled.slice(0, -1).join(', ')} and ${filled[filled.length - 1]}` : filled[0]} from LinkedIn.${p.position ? '' : ' Their job title is hidden on their public profile; add it if you know it.'}`,
+        existing: other,
+        error: !!other,
+      });
+    } catch (e) {
+      setLi({ text: (e as Error).message, error: true });
+    } finally {
+      setImporting(false);
+    }
+  }
 
   useEffect(() => {
     api.companies().then((cs) => setCompanies(cs.map((c) => c.name)));
@@ -261,7 +293,36 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {field('full_name', 'Name *', { required: true, autoFocus: true })}
+      <div className="rounded-lg border border-brand/30 bg-brand/5 p-4">
+        <label className="label">LinkedIn profile</label>
+        <div className="flex gap-2">
+          <input
+            className="input"
+            placeholder="https://www.linkedin.com/in/…"
+            autoFocus={!initial.id}
+            value={d.linkedin_url ?? ''}
+            onChange={(e) => set('linkedin_url', e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                importProfile();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn-ghost shrink-0"
+            onClick={importProfile}
+            disabled={importing || !/linkedin\.com\/in\//i.test(d.linkedin_url ?? '')}
+          >
+            <Icon name="linkedin" /> {importing ? 'Importing…' : 'Import from LinkedIn'}
+          </button>
+        </div>
+        <p className={`mt-1.5 text-xs ${li?.error ? 'text-red-400' : 'text-muted'}`}>
+          {li?.text ?? 'Paste their profile link to fill in the name, company and position.'}
+        </p>
+      </div>
+      {field('full_name', 'Name *', { required: true, autoFocus: !!initial.id })}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="label">Company</label>
@@ -281,7 +342,6 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
         </div>
         {field('position', 'Position')}
         {field('email', 'Email', { type: 'email' })}
-        {field('linkedin_url', 'LinkedIn profile', { placeholder: 'https://www.linkedin.com/in/…' })}
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">

@@ -1,7 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { db, seedStages } from './db.js';
 import { resolveMapsLink } from './mapsLink.js';
-import { fetchLinkedInCompany, findLogo } from './linkedin.js';
+import { fetchLinkedInCompany, fetchLinkedInProfile, findLogo } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { fetchLinkedInJob, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
@@ -594,6 +594,20 @@ function normalizeContact(body: Row) {
   if (typeof c.linkedin_url === 'string') c.linkedin_url = c.linkedin_url.replace(/\/+$/, '');
   return c;
 }
+
+/** A LinkedIn profile link → name, company, position, place; plus the contact if you already have them. */
+app.post(
+  '/api/linkedin/profile',
+  wrap(async (req, res) => {
+    try {
+      const p = await fetchLinkedInProfile(String(req.body.url ?? ''));
+      const existing = db.prepare('SELECT id, full_name FROM contacts WHERE lower(linkedin_url) = ?').get(p.linkedin_url) ?? null;
+      res.json({ ...p, existing });
+    } catch (e) {
+      res.status(422).json({ error: (e as Error).message });
+    }
+  }),
+);
 
 app.get('/api/contacts', (req, res) => {
   const q = String(req.query.q ?? '').trim();

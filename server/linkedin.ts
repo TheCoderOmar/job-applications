@@ -177,3 +177,74 @@ export async function findLogo(c: { linkedin?: string | null; website?: string |
   }
   return c.website ? websiteIcon(c.website) : null;
 }
+
+// ---------- Person profiles ----------
+
+export interface LinkedInProfile {
+  linkedin_url: string;
+  full_name: string | null;
+  company: string | null;
+  position: string | null;
+  location: string | null;
+}
+
+/** "linkedin.com/in/Some-One/?x" or "eg.linkedin.com/in/some-one" → "https://www.linkedin.com/in/some-one". */
+export function canonicalProfileUrl(input: string): string | null {
+  const m = /linkedin\.com\/in\/([^/?#\s]+)/i.exec(input.trim());
+  return m ? `https://www.linkedin.com/in/${decodeURIComponent(m[1]).toLowerCase()}` : null;
+}
+
+// Arabic/RTL pages wrap text in direction marks.
+const clean = (s: string | null | undefined) => (s ? s.replace(/[‎‏‪-‮]/g, '').replace(/\s+/g, ' ').trim() || null : null);
+
+export function parseProfilePage(html: string, url: string): LinkedInProfile {
+  // The profile's own Person entry is the one that lists where they work.
+  let person: Record<string, any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const walk = (o: unknown): void => {
+    if (person || !o || typeof o !== 'object') return;
+    if (Array.isArray(o)) return o.forEach(walk);
+    const r = o as Record<string, unknown>;
+    if (r['@type'] === 'Person' && ('worksFor' in r || 'jobTitle' in r)) person = r;
+    else Object.values(r).forEach(walk);
+  };
+  for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      walk(JSON.parse(m[1]));
+    } catch {
+      /* not JSON */
+    }
+  }
+  const p = person as Record<string, any> | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const ogTitle = clean(meta(html, 'og:title'));
+  // og:title is "Name - Company | LinkedIn".
+  const [ogName, ogCompany] = (ogTitle ?? '').replace(/\s*\|\s*LinkedIn\s*$/i, '').split(/\s+-\s+/);
+  const works = Array.isArray(p?.worksFor) ? p!.worksFor : p?.worksFor ? [p.worksFor] : [];
+  const jobTitle = (Array.isArray(p?.jobTitle) ? p!.jobTitle : [p?.jobTitle]).map((t: unknown) => clean(String(t ?? ''))).find(Boolean);
+  const firstRole = /experience-item__title[^>]*>([\s\S]*?)<\/(?:h3|span|a|div)>/.exec(html)?.[1];
+  return {
+    linkedin_url: url,
+    full_name: clean(p?.name) ?? clean(ogName),
+    company: clean(works[0]?.name) ?? clean(ogCompany),
+    position: jobTitle ?? clean(firstRole ? text(firstRole) : null),
+    location: clean(p?.address?.addressLocality),
+  };
+}
+
+/**
+ * LinkedIn blocks ordinary requests for profiles (status 999) but serves the public profile to
+ * link-preview bots, the same page a chat app uses to show a link preview.
+ */
+export async function fetchLinkedInProfile(input: string): Promise<LinkedInProfile> {
+  const url = canonicalProfileUrl(input);
+  if (!url) throw new Error('That is not a LinkedIn profile link (it should look like linkedin.com/in/name).');
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'facebookexternalhit/1.1', 'Accept-Language': 'en-US,en;q=0.9' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 404) throw new Error('LinkedIn has no profile at that link.');
+  if (!res.ok) throw new Error(`LinkedIn did not answer (status ${res.status}). Try again in a minute.`);
+  const profile = parseProfilePage(await res.text(), url);
+  if (!profile.full_name) throw new Error('LinkedIn did not show this profile publicly. Fill it in by hand.');
+  return profile;
+}

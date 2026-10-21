@@ -57,3 +57,30 @@ test('parseCompanyPage decodes double-encoded names', () => {
   const d = parseCompanyPage('<meta property="og:title" content="SKY Distribution &amp;amp; Services | LinkedIn">', 'u');
   assert.equal(d.name, 'SKY Distribution & Services');
 });
+
+test('canonicalProfileUrl normalises profile links', async () => {
+  const { canonicalProfileUrl } = await import('./linkedin.js');
+  assert.equal(canonicalProfileUrl('https://eg.linkedin.com/in/Abdalla-Adel-ba77/?trk=x'), 'https://www.linkedin.com/in/abdalla-adel-ba77');
+  assert.equal(canonicalProfileUrl('linkedin.com/in/someone'), 'https://www.linkedin.com/in/someone');
+  assert.equal(canonicalProfileUrl('https://www.linkedin.com/company/acme'), null);
+});
+
+test('parseProfilePage reads name, company, role and place (and strips RTL marks)', async () => {
+  const { parseProfilePage } = await import('./linkedin.js');
+  const html = `<meta property="og:title" content="‏Sara Hassan‏ - ‏Acme‏ | LinkedIn">
+<script type="application/ld+json">{"@graph":[{"@type":"DiscussionForumPosting","author":{"@type":"Person","name":"x"}},
+{"@type":"Person","name":"Sara Hassan","jobTitle":["Integration Engineer"],"worksFor":[{"@type":"Organization","name":"Acme"}],
+"address":{"addressLocality":"Cairo"}}]}</script>`;
+  assert.deepEqual(parseProfilePage(html, 'u'), {
+    linkedin_url: 'u',
+    full_name: 'Sara Hassan',
+    company: 'Acme',
+    position: 'Integration Engineer',
+    location: 'Cairo',
+  });
+  // Without structured data: name and company from the page title.
+  const d = parseProfilePage('<meta property="og:title" content="Ali Omar - Valeo | LinkedIn">', 'u');
+  assert.equal(d.full_name, 'Ali Omar');
+  assert.equal(d.company, 'Valeo');
+  assert.equal(d.position, null);
+});

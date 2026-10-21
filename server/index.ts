@@ -355,6 +355,34 @@ function ghostIfClosed(jobId: number) {
   return true;
 }
 
+/** Days with no new step after which an open application counts as ghosted. */
+const GHOST_AFTER_DAYS = 60;
+
+/**
+ * Applied, still in an open stage, and no new step for GHOST_AFTER_DAYS → Ghosted (a step dated today).
+ * Saved jobs you never applied to, and closed ones (rejected, offer, …), are left alone.
+ */
+function ghostStaleApplications() {
+  const ghosted = ghostedStageId();
+  if (!ghosted) return 0;
+  const stale = db
+    .prepare(
+      `SELECT j.id FROM jobs j JOIN stages s ON s.id = j.stage_id
+       WHERE s.kind = 'active' AND j.stage_id != @first AND j.applied_date IS NOT NULL
+         AND (SELECT MAX(h.changed_at) FROM stage_history h WHERE h.job_id = j.id) <= datetime('now', @age)
+         AND j.applied_date <= date('now', @age)`,
+    )
+    .all({ first: firstStageId(), age: `-${GHOST_AFTER_DAYS} days` }) as { id: number }[];
+  for (const { id } of stale) {
+    db.transaction(() => {
+      db.prepare(`INSERT INTO stage_history (job_id, stage_id, changed_at) VALUES (?, ?, datetime('now'))`).run(id, ghosted);
+      syncFromHistory(id);
+    })();
+  }
+  if (stale.length) console.log(`${stale.length} application(s) with no update for ${GHOST_AFTER_DAYS} days moved to Ghosted.`);
+  return stale.length;
+}
+
 let checkingPostings = false;
 async function checkClosedPostings() {
   if (checkingPostings) return;
@@ -1345,9 +1373,13 @@ for (const { id } of db
   .all() as { id: number }[])
   queueDescriptionFill(id);
 
-// Check open applications' LinkedIn postings a minute after start, then twice a day.
+// Ghost stale applications now; check open applications' LinkedIn postings a minute after start; both twice a day.
+ghostStaleApplications();
 setTimeout(() => void checkClosedPostings(), 60_000);
-setInterval(() => void checkClosedPostings(), 12 * 60 * 60 * 1000);
+setInterval(() => {
+  ghostStaleApplications();
+  void checkClosedPostings();
+}, 12 * 60 * 60 * 1000);
 
 const PORT = Number(process.env.PORT ?? 3001);
 app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));

@@ -21,11 +21,25 @@ function cleanTitle(title) {
   return String(title || '').split(/\s+[|–—]\s+|\s+-\s+/)[0].trim();
 }
 
-/** Opens the Job Tracker's "Log application" form, filled from this page. */
+/**
+ * Opens a small window with the Job Tracker's "Log application" form, filled from this page,
+ * at the right edge of the browser window so the job stays visible beside it.
+ */
 async function sendToTracker(url, title) {
   const base = await appAddress();
   const q = new URLSearchParams({ import: url });
   const t = cleanTitle(title);
   if (t) q.set('title', t);
-  await chrome.tabs.create({ url: `${base}/jobs?${q}` });
+  const width = 560;
+  const height = 820;
+  let left;
+  let top;
+  try {
+    const win = await chrome.windows.getLastFocused();
+    left = Math.max(0, (win.left ?? 0) + (win.width ?? width) - width - 16);
+    top = Math.max(0, (win.top ?? 0) + 60);
+  } catch {
+    /* let the browser place it */
+  }
+  await chrome.windows.create({ url: `${base}/quick?${q}`, type: 'popup', width, height, left, top, focused: true });
 }

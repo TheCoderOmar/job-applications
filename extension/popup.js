@@ -6,7 +6,7 @@
   document.getElementById('kind').textContent = kind || 'Any page';
   document.getElementById('title').textContent = cleanTitle(tab?.title) || url;
   document.getElementById('hint').textContent = kind
-    ? 'Opens "Log application" with the title, company and description filled in.'
+    ? 'Opens a small window with the title, company and description filled in. This tab stays as it is.'
     : "This site can't be read automatically: the link and page title are filled in, add the rest yourself.";
   if (!kind) document.getElementById('import').textContent = 'Log this page';
 

@@ -28,7 +28,7 @@ server/openings.ts   LinkedIn guest job search, careers pages + job boards, Link
 src/pages/*          Dashboard, Companies, Applications (Jobs.tsx), Openings, Contacts, Map, Settings
 src/components/*     JobForm (import, steps), Steps, FlowChart, DateInput, Contacts, CompanyLogo…
 src/dates.ts         all dates shown day/month/year
-extension/           Chrome/Edge MV3 extension: opens /jobs?import=<url>&title=… in the app
+extension/           Chrome/Edge MV3 extension: opens a small popup window on /quick?import=<url>&title=… (QuickAdd page, no menu)
 ```
 
 ## Domain rules

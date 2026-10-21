@@ -9,10 +9,13 @@ import MapPage from './pages/MapPage';
 import Settings from './pages/Settings';
 import Contacts from './pages/Contacts';
 import Openings from './pages/Openings';
+import QuickAdd from './pages/QuickAdd';
 
 export default function App() {
   return (
     <Routes>
+      {/* The browser extension's small window: no menu, just the form. */}
+      <Route path="quick" element={<QuickAdd />} />
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="companies" element={<Companies />} />

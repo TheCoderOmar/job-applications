@@ -32,6 +32,20 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   const [liStatus, setLiStatus] = useState<{ text: string; error?: boolean } | null>(null);
 
   const [importing, setImporting] = useState(false);
+  // Company named on the imported posting but not in your list yet: one click adds it and picks it.
+  const [missingCompany, setMissingCompany] = useState<string | null>(null);
+  async function addMissingCompany() {
+    if (!missingCompany) return;
+    try {
+      const c = await api.createCompany({ name: missingCompany });
+      setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
+      setD((prev) => ({ ...prev, company_id: c.id }));
+      setMissingCompany(null);
+      setLiStatus({ text: `Added ${c.name} to your companies and picked it.` });
+    } catch (e) {
+      setLiStatus({ text: (e as Error).message, error: true });
+    }
+  }
 
   /** A recruiter's LinkedIn post → the job description (who posted it, then the post). */
   async function fillFromLinkedInPost(link: string, replace = false) {
@@ -98,7 +112,10 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
       }
       const notes: string[] = [];
       if (li.closed) notes.push(`${site} says this job is no longer accepting applications.`);
-      if (li.company && !company && !isEdit) notes.push(`"${li.company}" isn't in your companies yet; add it first to pick it here.`);
+      if (li.company && !company && !isEdit) {
+        notes.push(`"${li.company}" isn't in your companies yet.`);
+        setMissingCompany(li.company);
+      } else setMissingCompany(null);
       setLiStatus({
         text: [filled.length ? `Imported the ${filled.join(', ')} from ${site}.` : 'Already up to date.', ...notes].join(' '),
         error: !!notes.length && !filled.length,
@@ -211,6 +228,11 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
             </button>
           </div>
           {liStatus && <p className={`mt-1.5 text-xs ${liStatus.error ? 'text-red-400' : 'text-muted'}`}>{liStatus.text}</p>}
+          {missingCompany && (
+            <button type="button" className="btn-ghost mt-2 px-2.5 py-1 text-xs" onClick={addMissingCompany}>
+              <Icon name="plus" /> Add "{missingCompany}" as a company
+            </button>
+          )}
         </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

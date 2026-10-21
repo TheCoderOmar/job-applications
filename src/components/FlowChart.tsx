@@ -58,7 +58,9 @@ export default function FlowChart({ data }: { data: SankeyData }) {
   };
 
   return (
-    <div ref={box} className="relative overflow-x-auto" onMouseLeave={() => setHover(null)}>
+    // The tooltip lives outside the scrolling box, so showing it never adds a scrollbar.
+    <div ref={box} className="relative" onMouseLeave={() => setHover(null)}>
+      <div className="overflow-x-auto overflow-y-hidden">
       <svg width={width} height={height} role="img" aria-label="Where applications went">
         <g fill="none">
           {(layout.links as L[]).map((l, i) => {
@@ -97,10 +99,15 @@ export default function FlowChart({ data }: { data: SankeyData }) {
           </g>
         ))}
       </svg>
+      </div>
       {hover && (
         <div
           className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-3 py-2 text-sm shadow-glow"
-          style={{ left: Math.min(hover.x + 12, width - 220), top: hover.y + 12 }}
+          // Right of the cursor, flipped left / above near the edges so it stays inside the card.
+          style={{
+            left: hover.x + 232 > width ? hover.x - 232 : hover.x + 12,
+            top: hover.y + 70 > height ? hover.y - 70 : hover.y + 12,
+          }}
         >
           <div className="flex items-center gap-2 text-muted">
             <span className="h-2 w-2 rounded-full" style={{ background: hover.color }} />

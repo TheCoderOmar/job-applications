@@ -26,6 +26,7 @@ server/contacts.ts   CSV parsing, LinkedIn connections/messages, company-name ma
 server/linkedin.ts   LinkedIn company pages, profiles, posts; logo lookup
 server/openings.ts   LinkedIn guest job search, careers pages + job boards, LinkedIn/Workable job import
 server/cvs.ts        CV file checks, default labels, Content-Disposition (keeps the original file name)
+server/quiz.ts       question-file parsing (role → topics → mcq/card questions), shuffle
 src/pages/*          Dashboard, Companies, Applications (Jobs.tsx), Openings, Contacts, Map, Settings
 src/components/*     JobForm (import, steps), Steps, FlowChart, DateInput, Contacts, CompanyLogo…
 src/dates.ts         all dates shown day/month/year
@@ -44,6 +45,7 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 - **Dates** show as dd/mm/yyyy everywhere (`DateInput`, `dmy`); the browser's native date input is only used for its calendar popup.
 - Work type includes `unknown` (default for new applications).
 - **CVs** (`cvs` table, files as BLOBs, CVs page): Omar's CV files all share one name (`Omar Ali Omar Elsayed.pdf`), so each version has a label (default `CV dd/mm/yyyy`). Downloads keep the original name. One CV is the default: new applications (form, QuickAdd, "I applied" on Openings) start on it; existing ones were left empty on purpose. `jobs.cv_id` = the CV applied with; a CV in use can't be deleted ("Replace file" keeps the same CV). Included in export/import.
+- **Quiz** (`quiz_sets` / `quiz_questions` / `quiz_attempts`, Quiz page): question sets imported from JSON `{ role, topics: [{ topic, questions: [{ id, type: mcq|card, question, options?, answer }] }] }`. One set per role; re-importing the same role updates by question id and keeps answers. Every answer is stored; a question's status is its **latest** answer (right / missed / not tried), which drives the topic bars and "Practise the ones I missed". Flashcards count as right on "Knew it". Not linked to applications (Omar's choice). First set: `backend_developer_questions.json` (117 questions, 15 topics), imported 2026-10-24.
 
 ## Working notes for Claude
 

@@ -6,6 +6,7 @@ import { buildSankey, conversationStats, normalizeCompany as normalizeName, pars
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
 import { contentDisposition, defaultCvLabel, parseCvFile } from './cvs.js';
+import { parseQuizFile, shuffle } from './quiz.js';
 
 const app = express();
 app.use(express.json({ limit: '25mb' }));
@@ -1101,6 +1102,101 @@ app.delete('/api/cvs/:id', (req, res) => {
   res.status(204).end();
 });
 
+// ---------- Interview quiz ----------
+// Question sets come from JSON files (one per role). Every answer is kept, so weak questions can be practised again.
+
+/** Per question: how many times answered and whether the latest answer was right (null = never tried). */
+const questionStatus = `
+  (SELECT COUNT(*) FROM quiz_attempts a WHERE a.question_id = q.id) AS attempts,
+  (SELECT a.correct FROM quiz_attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) AS last_correct`;
+
+function quizSets() {
+  const sets = db.prepare('SELECT * FROM quiz_sets ORDER BY role COLLATE NOCASE').all() as Row[];
+  const topics = db
+    .prepare(
+      `SELECT set_id, topic, MIN(topic_order) AS topic_order, COUNT(*) AS total,
+              SUM(type = 'mcq') AS mcq, SUM(type = 'card') AS card,
+              SUM(last_correct IS NOT NULL) AS answered, SUM(last_correct = 1) AS got_right, SUM(last_correct = 0) AS missed
+       FROM (SELECT q.set_id, q.topic, q.topic_order, q.type, ${questionStatus} FROM quiz_questions q)
+       GROUP BY set_id, topic ORDER BY set_id, topic_order`,
+    )
+    .all() as Row[];
+  return sets.map((s) => ({ ...s, topics: topics.filter((t) => t.set_id === s.id).map(({ set_id: _s, ...t }) => t) }));
+}
+
+app.get('/api/quiz/sets', (_req, res) => {
+  res.json(quizSets());
+});
+
+/** A question file (as text). Same role as an existing set → that set is updated; questions are matched by their id. */
+app.post('/api/quiz/import', (req, res) => {
+  const parsed = parseQuizFile(String(req.body.file ?? ''));
+  if (typeof parsed === 'string') return res.status(400).json({ error: parsed });
+  const result = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO quiz_sets (role) VALUES (?) ON CONFLICT(role) DO UPDATE SET imported_at = datetime('now')`,
+    ).run(parsed.role);
+    const set = db.prepare('SELECT id FROM quiz_sets WHERE role = ?').get(parsed.role) as { id: number };
+    const before = new Set((db.prepare('SELECT ext_id FROM quiz_questions WHERE set_id = ?').all(set.id) as { ext_id: string }[]).map((r) => r.ext_id));
+    const upsert = db.prepare(
+      `INSERT INTO quiz_questions (set_id, ext_id, topic, topic_order, sort_order, type, question, options, answer)
+       VALUES (@set_id, @ext_id, @topic, @topic_order, @sort_order, @type, @question, @options, @answer)
+       ON CONFLICT(set_id, ext_id) DO UPDATE SET topic = excluded.topic, topic_order = excluded.topic_order, sort_order = excluded.sort_order,
+         type = excluded.type, question = excluded.question, options = excluded.options, answer = excluded.answer`,
+    );
+    for (const q of parsed.questions) upsert.run({ ...q, set_id: set.id, options: q.options ? JSON.stringify(q.options) : null });
+    const ids = parsed.questions.map((q) => q.ext_id);
+    // Questions no longer in the file go, with their answers.
+    const removed = db
+      .prepare(`DELETE FROM quiz_questions WHERE set_id = ? AND ext_id NOT IN (SELECT value FROM json_each(?))`)
+      .run(set.id, JSON.stringify(ids)).changes;
+    const added = ids.filter((id) => !before.has(id)).length;
+    return { set_id: set.id, role: parsed.role, added, updated: ids.length - added, removed };
+  })();
+  res.json(result);
+});
+
+/**
+ * Questions for a quiz, shuffled: from the chosen topics, `which` = all | missed (latest answer wrong) | new (never tried),
+ * `types` = all | mcq | card, at most `count`.
+ */
+app.post('/api/quiz/sets/:id/start', (req, res) => {
+  const topics: string[] = Array.isArray(req.body.topics) ? req.body.topics.map(String) : [];
+  const where = ['q.set_id = @set_id'];
+  if (topics.length) where.push('q.topic IN (SELECT value FROM json_each(@topics))');
+  if (req.body.types === 'mcq' || req.body.types === 'card') where.push(`q.type = '${req.body.types}'`);
+  const rows = db
+    .prepare(`SELECT * FROM (SELECT q.*, ${questionStatus} FROM quiz_questions q WHERE ${where.join(' AND ')})`)
+    .all({ set_id: req.params.id, topics: JSON.stringify(topics) }) as (Row & { last_correct: number | null; options: string | null })[];
+  const picked = rows.filter((r) =>
+    req.body.which === 'missed' ? r.last_correct === 0 : req.body.which === 'new' ? r.last_correct === null : true,
+  );
+  const count = Number(req.body.count) > 0 ? Number(req.body.count) : picked.length;
+  res.json(
+    shuffle(picked)
+      .slice(0, count)
+      .map((r) => ({ ...r, options: r.options ? shuffle(JSON.parse(r.options) as string[]) : null })),
+  );
+});
+
+app.post('/api/quiz/answers', (req, res) => {
+  const id = Number(req.body.question_id);
+  if (!db.prepare('SELECT 1 FROM quiz_questions WHERE id = ?').get(id)) return res.status(404).json({ error: 'Question not found' });
+  db.prepare('INSERT INTO quiz_attempts (question_id, correct) VALUES (?, ?)').run(id, req.body.correct ? 1 : 0);
+  res.status(201).json({ ok: true });
+});
+
+/** Forget every answer in this set (the questions stay). */
+app.delete('/api/quiz/sets/:id/progress', (req, res) => {
+  db.prepare('DELETE FROM quiz_attempts WHERE question_id IN (SELECT id FROM quiz_questions WHERE set_id = ?)').run(req.params.id);
+  res.json(quizSets());
+});
+
+app.delete('/api/quiz/sets/:id', (req, res) => {
+  db.prepare('DELETE FROM quiz_sets WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
 // ---------- Stages ----------
 
 const stageSelect = `
@@ -1324,6 +1420,9 @@ app.get('/api/export', (_req, res) => {
       data: l.data ? (l.data as Buffer).toString('base64') : null,
     })),
     settings: db.prepare('SELECT * FROM settings').all(),
+    quiz_sets: db.prepare('SELECT * FROM quiz_sets ORDER BY id').all(),
+    quiz_questions: db.prepare('SELECT * FROM quiz_questions ORDER BY id').all(),
+    quiz_attempts: db.prepare('SELECT * FROM quiz_attempts ORDER BY id').all(),
   };
   res.setHeader('Content-Disposition', `attachment; filename="job-tracker-${today()}.json"`);
   res.json(data);
@@ -1339,12 +1438,15 @@ app.post(
   '/api/import',
   wrap(async (req, res) => {
     const {
-      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [],
+      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
     } = req.body as {
       contacts?: Row[];
       job_referrers?: Row[];
       company_logos?: Row[];
       cvs?: Row[];
+      quiz_sets?: Row[];
+      quiz_questions?: Row[];
+      quiz_attempts?: Row[];
       mode?: string;
       stages?: Row[];
       companies?: Row[];
@@ -1355,7 +1457,7 @@ app.post(
 
     if (mode === 'replace') {
       db.transaction(() => {
-        db.exec('DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
+        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
         const insertAll = (table: string, rows: Row[]) => {
           for (const r of rows) {
             const keys = Object.keys(r);
@@ -1371,6 +1473,9 @@ app.post(
         insertAll('job_referrers', job_referrers);
         insertAll('company_logos', company_logos.map((l) => ({ ...l, data: l.data ? Buffer.from(String(l.data), 'base64') : null })));
         insertAll('settings', settings);
+        insertAll('quiz_sets', quiz_sets);
+        insertAll('quiz_questions', quiz_questions);
+        insertAll('quiz_attempts', quiz_attempts);
       })();
       seedStages();
       return res.json({ companies: companies.length, jobs: jobs.length });

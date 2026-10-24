@@ -7,6 +7,7 @@ const nav: { to: string; label: string; icon: IconName }[] = [
   { to: '/companies', label: 'Companies', icon: 'building' },
   { to: '/jobs', label: 'Applications', icon: 'briefcase' },
   { to: '/cvs', label: 'CVs', icon: 'file' },
+  { to: '/quiz', label: 'Quiz', icon: 'quiz' },
   { to: '/openings', label: 'Openings', icon: 'search' },
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/map', label: 'Map', icon: 'map' },

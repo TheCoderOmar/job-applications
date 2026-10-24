@@ -116,6 +116,41 @@ export interface Cv {
   job_count: number;
 }
 
+export interface QuizTopic {
+  topic: string;
+  topic_order: number;
+  total: number;
+  mcq: number;
+  card: number;
+  /** Questions answered at least once; of those, latest answer right / wrong. */
+  answered: number;
+  got_right: number;
+  missed: number;
+}
+
+export interface QuizSet {
+  id: number;
+  role: string;
+  imported_at: string;
+  topics: QuizTopic[];
+}
+
+export interface QuizQuestion {
+  id: number;
+  set_id: number;
+  topic: string;
+  type: 'mcq' | 'card';
+  question: string;
+  /** Multiple choice only, already shuffled. */
+  options: string[] | null;
+  answer: string;
+  attempts: number;
+  last_correct: 0 | 1 | null;
+}
+
+export type QuizWhich = 'all' | 'missed' | 'new';
+export type QuizTypes = 'all' | 'mcq' | 'card';
+
 export interface HistoryEntry {
   id: number;
   stage_id: number;

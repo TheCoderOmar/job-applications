@@ -11,6 +11,7 @@ import Contacts from './pages/Contacts';
 import Openings from './pages/Openings';
 import QuickAdd from './pages/QuickAdd';
 import Cvs from './pages/Cvs';
+import Quiz from './pages/Quiz';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="cvs" element={<Cvs />} />
+        <Route path="quiz" element={<Quiz />} />
         <Route path="openings" element={<Openings />} />
         <Route path="contacts" element={<Contacts />} />
         <Route path="map" element={<MapPage />} />

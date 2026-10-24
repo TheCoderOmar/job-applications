@@ -292,3 +292,39 @@ db.exec(`
 `);
 if (!(db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).some((c) => c.name === 'cv_id'))
   db.exec(`ALTER TABLE jobs ADD COLUMN cv_id INTEGER REFERENCES cvs(id)`);
+
+// ---------- Interview quiz (question sets imported from JSON files) ----------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS quiz_sets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- one set per role; importing a file with the same role updates it
+    role TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS quiz_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_id INTEGER NOT NULL REFERENCES quiz_sets(id) ON DELETE CASCADE,
+    -- the question's id in the file
+    ext_id TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    topic_order INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    type TEXT NOT NULL CHECK (type IN ('mcq','card')),
+    question TEXT NOT NULL,
+    -- JSON array for multiple choice
+    options TEXT,
+    answer TEXT NOT NULL,
+    UNIQUE (set_id, ext_id)
+  );
+
+  -- Every answer you give: right or wrong (a flashcard is right when you mark "Knew it").
+  CREATE TABLE IF NOT EXISTS quiz_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+    correct INTEGER NOT NULL,
+    answered_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_attempts_question ON quiz_attempts(question_id);
+`);

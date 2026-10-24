@@ -1,4 +1,4 @@
-import type { Company, Contact, Cv, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
+import type { Company, Contact, Cv, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
@@ -73,6 +73,15 @@ export const api = {
   setDefaultCv: (id: number) => request<Cv[]>(`/api/cvs/${id}/default`, { method: 'PATCH' }),
   deleteCv: (id: number) => request<void>(`/api/cvs/${id}`, { method: 'DELETE' }),
   cvFileUrl: (id: number, download = false) => `/api/cvs/${id}/file${download ? '?download=1' : ''}`,
+
+  quizSets: () => request<QuizSet[]>('/api/quiz/sets'),
+  importQuiz: (file: string) =>
+    request<{ set_id: number; role: string; added: number; updated: number; removed: number }>('/api/quiz/import', json('POST', { file })),
+  startQuiz: (setId: number, opts: { topics: string[]; which: QuizWhich; types: QuizTypes; count: number | null }) =>
+    request<QuizQuestion[]>(`/api/quiz/sets/${setId}/start`, json('POST', opts)),
+  answerQuiz: (question_id: number, correct: boolean) => request<{ ok: true }>('/api/quiz/answers', json('POST', { question_id, correct })),
+  resetQuizProgress: (setId: number) => request<QuizSet[]>(`/api/quiz/sets/${setId}/progress`, { method: 'DELETE' }),
+  deleteQuizSet: (setId: number) => request<void>(`/api/quiz/sets/${setId}`, { method: 'DELETE' }),
 
   stages: () => request<Stage[]>('/api/stages'),
   createStage: (data: Partial<Stage>) => request<Stage[]>('/api/stages', json('POST', data)),

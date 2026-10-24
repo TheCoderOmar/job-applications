@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, useRef } from 'react';
 import { api } from '../api';
-import { CHANNEL_LABELS, type ApplyChannel, type Company, type Contact, type Job, type JobDetail, type Stage } from '../types';
+import { CHANNEL_LABELS, type ApplyChannel, type Company, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
+import { Link } from 'react-router-dom';
 import { ReferrerPicker } from './Contacts';
 import StepsEditor from './Steps';
 import Icon from './Icon';
@@ -26,6 +27,7 @@ const CONTACT_LABEL: Record<string, string> = {
 export default function JobForm({ initial, onSaved, onCancel, autoImport }: Props) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
+  const [cvs, setCvs] = useState<Cv[]>([]);
   const [d, setD] = useState<Partial<Job>>({ location_type: 'unknown', ...initial });
   const [referrers, setReferrers] = useState<Contact[]>(initial?.referrers ?? []);
   const [error, setError] = useState('');
@@ -159,13 +161,16 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   }, [autoImport, companies, stages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    Promise.all([api.companies(), api.stages()]).then(([c, s]) => {
+    Promise.all([api.companies(), api.stages(), api.cvs()]).then(([c, s, cv]) => {
       setCompanies(c);
       setStages(s);
+      setCvs(cv);
       setD((prev) => ({
         ...prev,
         company_id: prev.company_id ?? c[0]?.id,
         stage_id: prev.stage_id ?? s[0]?.id,
+        // New applications start on the default CV; a saved one keeps what it has, even none.
+        cv_id: initial?.id ? prev.cv_id : (prev.cv_id ?? cv.find((x) => x.is_default)?.id ?? null),
       }));
     });
   }, []);
@@ -326,6 +331,27 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
           />
         </div>
         )}
+        <div>
+          <label className="label">CV sent</label>
+          {cvs.length ? (
+            <select className="input" value={d.cv_id ?? ''} onChange={(e) => set('cv_id', e.target.value ? Number(e.target.value) : null)}>
+              <option value="">Not set</option>
+              {cvs.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                  {c.is_default ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="pt-2 text-sm text-muted">
+              No CVs yet.{' '}
+              <Link to="/cvs" target="_blank" className="text-brand-light hover:underline">
+                Upload one in CVs
+              </Link>
+            </p>
+          )}
+        </div>
         <div className="sm:col-span-2">
           <label className="label">Referred by (optional, up to 3)</label>
           <ReferrerPicker value={referrers} onChange={setReferrers} companyId={d.company_id} />

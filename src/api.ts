@@ -1,4 +1,4 @@
-import type { Company, Contact, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
+import type { Company, Contact, Cv, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
@@ -65,6 +65,14 @@ export const api = {
     request<{ ok: true }>(`/api/jobs/${jobId}/history/${stepId}`, json('PUT', data)),
   deleteStep: (jobId: number, stepId: number) => request<void>(`/api/jobs/${jobId}/history/${stepId}`, { method: 'DELETE' }),
   deleteJob: (id: number) => request<void>(`/api/jobs/${id}`, { method: 'DELETE' }),
+
+  cvs: () => request<Cv[]>('/api/cvs'),
+  uploadCv: (data: { dataUrl: string; file_name: string; label?: string; notes?: string }) => request<Cv>('/api/cvs', json('POST', data)),
+  updateCv: (id: number, data: { label: string; notes: string | null }) => request<Cv>(`/api/cvs/${id}`, json('PUT', data)),
+  replaceCvFile: (id: number, data: { dataUrl: string; file_name: string }) => request<Cv>(`/api/cvs/${id}/file`, json('PUT', data)),
+  setDefaultCv: (id: number) => request<Cv[]>(`/api/cvs/${id}/default`, { method: 'PATCH' }),
+  deleteCv: (id: number) => request<void>(`/api/cvs/${id}`, { method: 'DELETE' }),
+  cvFileUrl: (id: number, download = false) => `/api/cvs/${id}/file${download ? '?download=1' : ''}`,
 
   stages: () => request<Stage[]>('/api/stages'),
   createStage: (data: Partial<Stage>) => request<Stage[]>('/api/stages', json('POST', data)),

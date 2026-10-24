@@ -5,6 +5,7 @@ import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
+import { contentDisposition, defaultCvLabel, parseCvFile } from './cvs.js';
 
 const app = express();
 app.use(express.json({ limit: '25mb' }));
@@ -223,7 +224,7 @@ app.delete('/api/companies/:id', (req, res) => {
 
 const JOB_FIELDS = [
   'company_id', 'title', 'description', 'url', 'location_type', 'salary', 'stage_id', 'applied_date', 'notes',
-  'apply_channel', 'apply_contact',
+  'apply_channel', 'apply_contact', 'cv_id',
 ] as const;
 
 const CHANNELS = ['email', 'website', 'linkedin', 'other'];
@@ -234,10 +235,12 @@ const jobSelect = `
          (SELECT s2.name FROM stage_history h2 JOIN stages s2 ON s2.id = h2.stage_id
            WHERE h2.job_id = j.id AND s2.kind != 'closed_lost' ORDER BY s2.sort_order DESC LIMIT 1) AS reached_stage,
          (SELECT CASE WHEN l.status = 'found' THEN l.fetched_at END FROM company_logos l WHERE l.company_id = j.company_id) AS logo_at,
-         c.name AS company_name, s.name AS stage_name, s.color AS stage_color, s.kind AS stage_kind, s.sort_order AS stage_order
+         c.name AS company_name, s.name AS stage_name, s.color AS stage_color, s.kind AS stage_kind, s.sort_order AS stage_order,
+         cv.label AS cv_label
   FROM jobs j
   JOIN companies c ON c.id = j.company_id
-  JOIN stages s ON s.id = j.stage_id`;
+  JOIN stages s ON s.id = j.stage_id
+  LEFT JOIN cvs cv ON cv.id = j.cv_id`;
 
 function normalizeJob(body: Row) {
   const j: Row = {};
@@ -247,6 +250,8 @@ function normalizeJob(body: Row) {
   j.stage_id = body.stage_id ? Number(body.stage_id) : firstStageId();
   if (!['onsite', 'hybrid', 'remote', 'unknown'].includes(String(j.location_type))) j.location_type = 'unknown';
   if (!CHANNELS.includes(String(j.apply_channel))) j.apply_channel = null;
+  j.cv_id = numOrNull(j.cv_id);
+  if (j.cv_id !== null && !db.prepare('SELECT 1 FROM cvs WHERE id = ?').get(j.cv_id)) j.cv_id = null;
   if (!j.applied_date && isPastFirstStage(j.stage_id as number)) j.applied_date = today();
   return j;
 }
@@ -1002,6 +1007,7 @@ app.post('/api/openings/:id/applied', (req, res) => {
     apply_channel: o.source === 'linkedin' ? 'linkedin' : 'website',
     // LinkedIn jobs: the posting link is the job's url; nothing separate to record.
     apply_contact: o.source === 'linkedin' ? null : o.url,
+    cv_id: defaultCvId(),
   });
   const id = db.transaction(() => {
     const cols = JOB_FIELDS.join(', ');
@@ -1013,6 +1019,86 @@ app.post('/api/openings/:id/applied', (req, res) => {
   })();
   queueDescriptionFill(id);
   res.status(201).json(db.prepare(`${jobSelect} WHERE j.id = ?`).get(id));
+});
+
+// ---------- CVs ----------
+// Each version you send is kept with its own label: the files usually share one name.
+
+const cvSelect = `
+  SELECT cv.id, cv.label, cv.file_name, cv.mime, cv.size, cv.notes, cv.is_default, cv.created_at,
+         (SELECT COUNT(*) FROM jobs j WHERE j.cv_id = cv.id) AS job_count
+  FROM cvs cv`;
+
+function defaultCvId(): number | null {
+  return (db.prepare('SELECT id FROM cvs WHERE is_default = 1 LIMIT 1').get() as { id: number } | undefined)?.id ?? null;
+}
+
+const takenCvLabels = () => (db.prepare('SELECT label FROM cvs').all() as { label: string }[]).map((r) => r.label);
+
+app.get('/api/cvs', (_req, res) => {
+  res.json(db.prepare(`${cvSelect} ORDER BY cv.is_default DESC, cv.created_at DESC, cv.id DESC`).all());
+});
+
+app.post('/api/cvs', (req, res) => {
+  const file = parseCvFile(req.body.dataUrl, req.body.file_name);
+  if (typeof file === 'string') return res.status(400).json({ error: file });
+  const label = String(req.body.label ?? '').trim() || defaultCvLabel(today(), takenCvLabels());
+  const id = db.transaction(() => {
+    const first = !db.prepare('SELECT 1 FROM cvs').get();
+    const info = db
+      .prepare(`INSERT INTO cvs (label, file_name, mime, size, data, notes, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(label, file.file_name, file.mime, file.data.length, file.data, emptyToNull(String(req.body.notes ?? '').trim()), first ? 1 : 0);
+    return info.lastInsertRowid;
+  })();
+  res.status(201).json(db.prepare(`${cvSelect} WHERE cv.id = ?`).get(id));
+});
+
+app.put('/api/cvs/:id', (req, res) => {
+  const label = String(req.body.label ?? '').trim();
+  if (!label) return res.status(400).json({ error: 'Give the CV a label.' });
+  const info = db.prepare('UPDATE cvs SET label = ?, notes = ? WHERE id = ?').run(label, emptyToNull(String(req.body.notes ?? '').trim()), req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'CV not found' });
+  res.json(db.prepare(`${cvSelect} WHERE cv.id = ?`).get(req.params.id));
+});
+
+/** A corrected file for the same CV: applications that used it keep pointing to it. */
+app.put('/api/cvs/:id/file', (req, res) => {
+  const file = parseCvFile(req.body.dataUrl, req.body.file_name);
+  if (typeof file === 'string') return res.status(400).json({ error: file });
+  const info = db
+    .prepare('UPDATE cvs SET file_name = ?, mime = ?, size = ?, data = ? WHERE id = ?')
+    .run(file.file_name, file.mime, file.data.length, file.data, req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'CV not found' });
+  res.json(db.prepare(`${cvSelect} WHERE cv.id = ?`).get(req.params.id));
+});
+
+app.patch('/api/cvs/:id/default', (req, res) => {
+  if (!db.prepare('SELECT 1 FROM cvs WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'CV not found' });
+  db.transaction(() => {
+    db.prepare('UPDATE cvs SET is_default = 0 WHERE is_default = 1').run();
+    db.prepare('UPDATE cvs SET is_default = 1 WHERE id = ?').run(req.params.id);
+  })();
+  res.json(db.prepare(`${cvSelect} ORDER BY cv.is_default DESC, cv.created_at DESC, cv.id DESC`).all());
+});
+
+/** The file itself, under its original name. ?download=1 saves it instead of showing it. */
+app.get('/api/cvs/:id/file', (req, res) => {
+  const row = db.prepare('SELECT file_name, mime, data FROM cvs WHERE id = ?').get(req.params.id) as
+    | { file_name: string; mime: string; data: Buffer }
+    | undefined;
+  if (!row) return res.status(404).end();
+  res.setHeader('Content-Type', row.mime);
+  res.setHeader('Content-Disposition', contentDisposition(req.query.download === '1' ? 'attachment' : 'inline', row.file_name));
+  // A replaced file keeps its URL, so always check.
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(row.data);
+});
+
+app.delete('/api/cvs/:id', (req, res) => {
+  const used = (db.prepare('SELECT COUNT(*) AS n FROM jobs WHERE cv_id = ?').get(req.params.id) as { n: number }).n;
+  if (used) return res.status(409).json({ error: `Used by ${used} application(s). Pick another CV on them first.` });
+  db.prepare('DELETE FROM cvs WHERE id = ?').run(req.params.id);
+  res.status(204).end();
 });
 
 // ---------- Stages ----------
@@ -1228,6 +1314,7 @@ app.get('/api/export', (_req, res) => {
     exported_at: new Date().toISOString(),
     stages: db.prepare('SELECT * FROM stages ORDER BY sort_order').all(),
     companies: db.prepare('SELECT * FROM companies ORDER BY id').all(),
+    cvs: (db.prepare('SELECT * FROM cvs ORDER BY id').all() as Row[]).map((cv) => ({ ...cv, data: (cv.data as Buffer).toString('base64') })),
     jobs: db.prepare('SELECT * FROM jobs ORDER BY id').all(),
     stage_history: db.prepare('SELECT * FROM stage_history ORDER BY id').all(),
     contacts: db.prepare('SELECT * FROM contacts ORDER BY id').all(),
@@ -1252,11 +1339,12 @@ app.post(
   '/api/import',
   wrap(async (req, res) => {
     const {
-      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [],
+      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [],
     } = req.body as {
       contacts?: Row[];
       job_referrers?: Row[];
       company_logos?: Row[];
+      cvs?: Row[];
       mode?: string;
       stages?: Row[];
       companies?: Row[];
@@ -1267,7 +1355,7 @@ app.post(
 
     if (mode === 'replace') {
       db.transaction(() => {
-        db.exec('DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
+        db.exec('DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
         const insertAll = (table: string, rows: Row[]) => {
           for (const r of rows) {
             const keys = Object.keys(r);
@@ -1276,6 +1364,7 @@ app.post(
         };
         insertAll('stages', stages);
         insertAll('companies', companies);
+        insertAll('cvs', cvs.map((cv) => ({ ...cv, data: Buffer.from(String(cv.data ?? ''), 'base64') })));
         insertAll('jobs', jobs);
         insertAll('stage_history', stage_history);
         insertAll('contacts', contacts);

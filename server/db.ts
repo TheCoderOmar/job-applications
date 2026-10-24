@@ -273,3 +273,22 @@ function allowUnknownWorkType() {
   }
 }
 allowUnknownWorkType();
+
+// ---------- CVs (each version stored in the DB; the one you applied with is on the job) ----------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cvs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    data BLOB NOT NULL,
+    notes TEXT,
+    -- picked for new applications; at most one
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+if (!(db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).some((c) => c.name === 'cv_id'))
+  db.exec(`ALTER TABLE jobs ADD COLUMN cv_id INTEGER REFERENCES cvs(id)`);

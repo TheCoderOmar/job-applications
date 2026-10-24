@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { CHANNEL_LABELS, WORK_TYPE_LABELS, type Contact, type JobDetail as JobDetailT, type Stage } from '../types';
+import { CHANNEL_LABELS, WORK_TYPE_LABELS, type Contact, type Cv, type JobDetail as JobDetailT, type Stage } from '../types';
 import { ConnectionsPanel, ReferrerChip } from '../components/Contacts';
 import StepsEditor from '../components/Steps';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
 import JobForm from '../components/JobForm';
+import CvPreview from '../components/CvPreview';
 import { StageSelect, closedAfter } from '../components/Stage';
 import CompanyLogo from '../components/CompanyLogo';
 import StarButton from '../components/Star';
@@ -24,6 +25,7 @@ export default function JobDetail() {
   // ?edit=1: just logged from an opening, so ask for channel and referrers.
   const [editing, setEditing] = useState(search.get('edit') === '1');
   const [error, setError] = useState('');
+  const [viewingCv, setViewingCv] = useState<Cv | null>(null);
 
   const load = useCallback(() => {
     api.job(id!).then(setJob).catch((e) => setError(e.message));
@@ -134,6 +136,20 @@ export default function JobDetail() {
               </div>
             )}
             <div className="flex justify-between gap-4">
+              <span className="shrink-0 text-muted">CV sent</span>
+              {job.cv_id ? (
+                <button
+                  className="truncate text-brand-light hover:underline"
+                  title="View this CV"
+                  onClick={async () => setViewingCv((await api.cvs()).find((c) => c.id === job.cv_id) ?? null)}
+                >
+                  {job.cv_label}
+                </button>
+              ) : (
+                <span>Not set</span>
+              )}
+            </div>
+            <div className="flex justify-between gap-4">
               <span className="shrink-0 text-muted">Referred by</span>
               {job.referrers.length ? (
                 <div className="flex flex-wrap justify-end gap-1.5">
@@ -167,6 +183,7 @@ export default function JobDetail() {
         </div>
       </div>
 
+      {viewingCv && <CvPreview cv={viewingCv} onClose={() => setViewingCv(null)} />}
       {editing && (
         <Modal title="Edit job" wide onClose={() => setEditing(false)}>
           <JobForm

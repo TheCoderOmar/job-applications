@@ -25,6 +25,7 @@ server/db.ts         schema + one-time migrations (guarded by `settings` keys or
 server/contacts.ts   CSV parsing, LinkedIn connections/messages, company-name matching, Sankey data
 server/linkedin.ts   LinkedIn company pages, profiles, posts; logo lookup
 server/openings.ts   LinkedIn guest job search, careers pages + job boards, LinkedIn/Workable job import
+server/cvs.ts        CV file checks, default labels, Content-Disposition (keeps the original file name)
 src/pages/*          Dashboard, Companies, Applications (Jobs.tsx), Openings, Contacts, Map, Settings
 src/components/*     JobForm (import, steps), Steps, FlowChart, DateInput, Contacts, CompanyLogo…
 src/dates.ts         all dates shown day/month/year
@@ -42,6 +43,7 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 - **LinkedIn access without login:** company and job pages with a browser UA; profiles and posts only with the `facebookexternalhit/1.1` UA (link-preview bot). LinkedIn sometimes double-encodes entities: decode until stable.
 - **Dates** show as dd/mm/yyyy everywhere (`DateInput`, `dmy`); the browser's native date input is only used for its calendar popup.
 - Work type includes `unknown` (default for new applications).
+- **CVs** (`cvs` table, files as BLOBs, CVs page): Omar's CV files all share one name (`Omar Ali Omar Elsayed.pdf`), so each version has a label (default `CV dd/mm/yyyy`). Downloads keep the original name. One CV is the default: new applications (form, QuickAdd, "I applied" on Openings) start on it; existing ones were left empty on purpose. `jobs.cv_id` = the CV applied with; a CV in use can't be deleted ("Replace file" keeps the same CV). Included in export/import.
 
 ## Working notes for Claude
 

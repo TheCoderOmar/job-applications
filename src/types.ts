@@ -90,6 +90,9 @@ export interface Job {
   notes: string | null;
   apply_channel: ApplyChannel | null;
   apply_contact: string | null;
+  /** The CV you applied with. */
+  cv_id: number | null;
+  cv_label: string | null;
   referrer_count: number;
   starred: 0 | 1;
   /** Furthest stage reached that isn't a closed-lost one, e.g. "HR interview" for "ghosted after HR interview". */
@@ -97,6 +100,20 @@ export interface Job {
   logo_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Cv {
+  id: number;
+  label: string;
+  /** The original file name, kept for downloads (often the same for every version). */
+  file_name: string;
+  mime: string;
+  size: number;
+  notes: string | null;
+  is_default: 0 | 1;
+  created_at: string;
+  /** Applications sent with this CV. */
+  job_count: number;
 }
 
 export interface HistoryEntry {

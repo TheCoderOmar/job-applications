@@ -71,7 +71,9 @@ npm test
 Import the job you're looking at straight into the app.
 
 1. Open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked** and pick the `extension` folder.
-2. Pin **Job Tracker Importer**. With the app running (`npm run dev`), open a LinkedIn job, a LinkedIn post or a Workable job and click the icon → **Import to Job Tracker**.
+2. Pin **Job Tracker Importer**. With the app running (`npm run dev`), open a LinkedIn job, a LinkedIn post, or a Workable, Indeed or Wuzzuf job and click the icon → **Import to Job Tracker**.
 3. A small **Log application** window opens beside the page, already filled in (title, company, description, how you applied); the job's tab stays as it is. Check it and save, and the window closes. If the company isn't in your list yet, click **Add "<company>" as a company**.
+
+Indeed and Wuzzuf block the app from reading their pages, so for them the extension sends the page you have open (pasting their links into the form won't fill it). On Indeed's search page it reads the job open on the right. After updating the extension to 1.2.0, click **Reload** on its card once (it asks to read the page you click it on).
 
 You can also right-click a job link (or any page) → **Import this job to Job Tracker**. Other sites get their link and page title filled in. The popup shows a green dot when the app is reachable; change the app address under **App address** if it isn't `http://localhost:5173`. After changing extension files, click **Reload** on its card in the extensions page.

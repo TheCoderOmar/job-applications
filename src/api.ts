@@ -26,9 +26,10 @@ export const api = {
       '/api/linkedin/post',
       json('POST', { url }),
     ),
-  importJob: (url: string) =>
+  /** `page`: an Indeed/Wuzzuf page the browser extension sent (those sites block the app). */
+  importJob: (url: string, page?: string) =>
     request<{
-      source: 'linkedin' | 'workable';
+      source: 'linkedin' | 'workable' | 'indeed' | 'wuzzuf';
       title: string | null;
       company: string | null;
       company_linkedin: string | null;
@@ -36,7 +37,7 @@ export const api = {
       description: string | null;
       workplace: 'remote' | 'hybrid' | 'onsite' | null;
       closed: boolean;
-    }>('/api/import/job', json('POST', { url })),
+    }>('/api/import/job', json('POST', { url, page })),
   linkedInJob: (url: string) =>
     request<{ title: string | null; company: string | null; location: string | null; description: string | null; workplace: 'remote' | 'hybrid' | 'onsite' | null; closed: boolean }>(
       '/api/linkedin/job',

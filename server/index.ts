@@ -3,6 +3,7 @@ import { db, seedStages } from './db.js';
 import { resolveMapsLink } from './mapsLink.js';
 import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
+import { cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
 import { contentDisposition, defaultCvLabel, parseCvFile } from './cvs.js';
@@ -417,13 +418,37 @@ async function checkClosedPostings() {
   }
 }
 
-/** Used by the job form: a LinkedIn or Workable job link → title, company, description, work type. */
+async function importJob(url: string, pageId: string | null) {
+  if (pageId) {
+    const page = keptPage(pageId);
+    if (!page) throw new Error('The page from the extension has expired. Click the extension on the job again.');
+    return parseJobPage(page.html, page.url);
+  }
+  const board = jobBoard(url);
+  if (board === 'workable') return fetchWorkableSearchJob(url);
+  if (board) throw new Error(needsExtension(board));
+  if (workableJobRef(url)) return fetchWorkableJob(url);
+  return { ...(await fetchLinkedInJob(url)), source: 'linkedin' as const };
+}
+
+/** From the browser extension: an Indeed/Wuzzuf/Workable job page as the browser sees it, kept until its window imports it. */
+app.post('/api/import/page', (req, res) => {
+  const url = String(req.body.url ?? '');
+  const html = String(req.body.html ?? '');
+  if (!jobBoard(url) || !html) return res.status(400).json({ error: 'Send the job page link and its HTML.' });
+  res.json({ page: keepPage(url, html), url: cleanJobUrl(url) });
+});
+
+/**
+ * Used by the job form: a LinkedIn, Workable, Indeed or Wuzzuf job link → title, company, description, work type.
+ * Indeed and Wuzzuf need `page` (sent by the extension): they block the app from fetching them.
+ */
 app.post(
   '/api/import/job',
   wrap(async (req, res) => {
     const url = String(req.body.url ?? '');
     try {
-      const job = workableJobRef(url) ? await fetchWorkableJob(url) : { ...(await fetchLinkedInJob(url)), source: 'linkedin' as const };
+      const job = await importJob(url, req.body.page ? String(req.body.page) : null);
       res.json({ ...job, description: descriptionFrom(job) });
     } catch (e) {
       res.status(422).json({ error: (e as Error).message });

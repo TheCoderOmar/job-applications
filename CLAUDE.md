@@ -25,6 +25,7 @@ server/db.ts         schema + one-time migrations (guarded by `settings` keys or
 server/contacts.ts   CSV parsing, LinkedIn connections/messages, company-name matching, Sankey data
 server/linkedin.ts   LinkedIn company pages, profiles, posts; logo lookup
 server/openings.ts   LinkedIn guest job search, careers pages + job boards, LinkedIn/Workable job import
+server/jobpages.ts   Indeed / Wuzzuf / jobs.workable.com job pages (schema.org JobPosting), pages sent by the extension
 server/cvs.ts        CV file checks, default labels, Content-Disposition (keeps the original file name)
 server/quiz.ts       question-file parsing (role → topics → mcq/card questions), shuffle
 src/pages/*          Dashboard, Companies, Applications (Jobs.tsx), Openings, Contacts, Map, Settings
@@ -38,9 +39,10 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 - **Stages:** Saved → Applied → Screening → HR interview → Technical interview → Shortlisted → Final interview → Offer; closed: Rejected, Withdrawn, Ghosted. "Applied" = past the first stage.
 - **Steps** (`stage_history`) are editable with dates; the job's stage is its latest step and its applied date the first step past Saved (`syncFromHistory`). Manual steps are stored at 12:00 on their day. Changing "Applied on" moves the Applied step (`alignAppliedStep`).
 - **Ghosting:** an applied job in an open stage with no new step for 60 days → Ghosted (startup, every 12 h, and on save). A LinkedIn posting showing "No longer accepting applications" → Ghosted, never Rejected.
-- **Applied via:** email / company website / LinkedIn / other. Imported LinkedIn jobs → LinkedIn; Workable → company website. A LinkedIn link picked by hand is usually a recruiter's **post** ("LinkedIn post link").
+- **Applied via:** email / company website / LinkedIn / other. Imported LinkedIn jobs → LinkedIn; Workable → company website; Indeed/Wuzzuf → other. A LinkedIn link picked by hand is usually a recruiter's **post** ("LinkedIn post link").
 - **Referrers:** up to 3 contacts per application. **Talked to:** counts from LinkedIn `messages.csv` (never message text) or marked by hand (`talked_at`).
 - **Openings** (separate from Applications): LinkedIn guest job search per company (company's country only) + careers pages via job-board feeds or JobPosting markup. Rate-limited: be gentle (delays, retries on 429).
+- **Indeed and Wuzzuf block server fetches** (Indeed: login/bot check 401/403; Wuzzuf: Cloudflare 403). The extension (`grabJobPage` in `extension/shared.js`, `scripting` permission) reads the page in the tab and POSTs it to `/api/import/page` (kept 30 min in memory); the QuickAdd window imports with `&page=<id>`. On Indeed's search page (`?vjk=`) it fetches `/viewjob?jk=` from inside the tab, falling back to the side panel (`vj-job-title`, `company-info-metadata`, `simple-job-description-html`). jobs.workable.com/view pages the server fetches itself.
 - **LinkedIn access without login:** company and job pages with a browser UA; profiles and posts only with the `facebookexternalhit/1.1` UA (link-preview bot). LinkedIn sometimes double-encodes entities: decode until stable.
 - **Dates** show as dd/mm/yyyy everywhere (`DateInput`, `dmy`); the browser's native date input is only used for its calendar popup.
 - Work type includes `unknown` (default for new applications).

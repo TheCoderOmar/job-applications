@@ -11,7 +11,7 @@
   if (!kind) document.getElementById('import').textContent = 'Log this page';
 
   document.getElementById('import').addEventListener('click', async () => {
-    await sendToTracker(url, tab?.title);
+    await sendToTracker(url, tab?.title, tab);
     window.close();
   });
 

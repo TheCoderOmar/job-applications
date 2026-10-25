@@ -14,6 +14,8 @@ interface Props {
   onCancel: () => void;
   /** A job link to import as soon as the form is ready (from the browser extension). */
   autoImport?: string;
+  /** The job page the extension sent with it (Indeed and Wuzzuf can only be read that way). */
+  autoImportPage?: string;
 }
 
 const CONTACT_LABEL: Record<string, string> = {
@@ -24,7 +26,7 @@ const CONTACT_LABEL: Record<string, string> = {
   other: 'Where you applied',
 };
 
-export default function JobForm({ initial, onSaved, onCancel, autoImport }: Props) {
+export default function JobForm({ initial, onSaved, onCancel, autoImport, autoImportPage }: Props) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
   const [cvs, setCvs] = useState<Cv[]>([]);
@@ -86,20 +88,21 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   }
 
   /**
-   * A LinkedIn or Workable job link → fill the form from the posting.
+   * A LinkedIn, Workable, Indeed or Wuzzuf job link → fill the form from the posting.
    * Pasting fills only empty fields; the Import button (`replace`) takes LinkedIn's title and description.
    * A posting that's "no longer accepting applications" moves an applied job to Ghosted.
    */
-  async function fillFromLinkedInJob(link: string | null | undefined, replace = false) {
+  async function fillFromLinkedInJob(link: string | null | undefined, replace = false, page?: string) {
     if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace);
     if (!link || !isImportableJob(link)) return;
-    const site = isWorkableJob(link) ? 'Workable' : 'LinkedIn';
+    const site = siteName(link);
     setImporting(true);
     setLiStatus({ text: `Reading the job from ${site}…` });
     try {
-      const li = await api.importJob(link);
+      // Importing again in the extension's window reuses the page it sent (Indeed and Wuzzuf can't be fetched).
+      const li = await api.importJob(link, page ?? (link === autoImport ? autoImportPage : undefined));
       // LinkedIn jobs are applied to on LinkedIn; Workable is the company's own careers page.
-      const channel = li.source === 'workable' ? 'website' : 'linkedin';
+      const channel: ApplyChannel = li.source === 'linkedin' ? 'linkedin' : li.source === 'workable' ? 'website' : 'other';
       const filled: string[] = [];
       const company = li.company ? companies.find((c) => sameName(c.name, li.company!)) : undefined;
       const ghosted = stages.find((s) => s.name.toLowerCase() === 'ghosted');
@@ -108,7 +111,7 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
       {
         const next = { ...prev, url: prev.url?.trim() ? prev.url : link };
         if (next.apply_channel !== channel)
-          (next.apply_channel = channel), filled.push(channel === 'linkedin' ? 'applied via LinkedIn' : 'applied via company website');
+          (next.apply_channel = channel), filled.push(`applied via ${channel === 'linkedin' ? 'LinkedIn' : channel === 'website' ? 'company website' : 'other'}`);
         // The job link now lives in "Job posting link"; a copy in the applied-via field isn't needed.
         if (next.apply_contact && isImportableJob(next.apply_contact)) next.apply_contact = null;
         const take = (empty: boolean) => replace || empty;
@@ -157,7 +160,7 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   useEffect(() => {
     if (!autoImport || autoImported.current || !companies.length || !stages.length) return;
     autoImported.current = true;
-    if (isImportableJob(autoImport) || isLinkedInPost(autoImport)) fillFromLinkedInJob(autoImport, true);
+    if (isImportableJob(autoImport) || isLinkedInPost(autoImport)) fillFromLinkedInJob(autoImport, true, autoImportPage);
   }, [autoImport, companies, stages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -182,7 +185,9 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
   const canImport = isImportableJob(linkedInLink) || isLinkedInPost(linkedInLink);
   // Applied through a LinkedIn job posting: the posting link above says it all, no second link.
   const viaLinkedInJob =
-    (d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '')) || (d.apply_channel === 'website' && isWorkableJob(d.url ?? ''));
+    (d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '')) ||
+    (d.apply_channel === 'website' && isWorkableJob(d.url ?? '')) ||
+    (d.apply_channel === 'other' && isBoardJob(d.url ?? ''));
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
   const isEdit = !!initial?.id;
 
@@ -232,16 +237,10 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport }: Prop
               className="btn-ghost shrink-0"
               disabled={importing || !canImport}
               onClick={() => fillFromLinkedInJob(linkedInLink, true)}
-              title={canImport ? 'Fill this form from LinkedIn now' : 'Paste a LinkedIn job/post or Workable job link first'}
+              title={canImport ? `Fill this form from ${siteName(linkedInLink)} now` : 'Paste a LinkedIn job/post or Workable job link first'}
             >
-              <Icon name={isWorkableJob(linkedInLink) || !linkedInLink ? 'download' : 'linkedin'} />{' '}
-              {importing
-                ? 'Importing…'
-                : isWorkableJob(linkedInLink)
-                  ? 'Import from Workable'
-                  : linkedInLink
-                    ? 'Import from LinkedIn'
-                    : 'Import job'}
+              <Icon name={siteName(linkedInLink) === 'LinkedIn' ? 'linkedin' : 'download'} />{' '}
+              {importing ? 'Importing…' : linkedInLink ? `Import from ${siteName(linkedInLink)}` : 'Import job'}
             </button>
           </div>
           {liStatus && <p className={`mt-1.5 text-xs ${liStatus.error ? 'text-red-400' : 'text-muted'}`}>{liStatus.text}</p>}
@@ -405,7 +404,18 @@ const isLinkedInPost = (u: string) => /linkedin\.com\/(posts\/|feed\/update\/urn
 
 /** apply.workable.com/<company>/j/<CODE>… or the short apply.workable.com/j/<CODE> */
 const isWorkableJob = (u: string) => /apply\.workable\.com\/(?:[a-z0-9-]+\/)?j\/[A-Z0-9]{6,}/i.test(u);
-const isImportableJob = (u: string) => isLinkedInJob(u) || isWorkableJob(u);
+/** Indeed (?jk= / ?vjk=), Wuzzuf (/jobs/p/…) and jobs.workable.com (/view/…) job links; same rules as server/jobpages.ts. */
+const boardOf = (u: string) =>
+  /^https?:\/\/(?:[a-z]+\.)?indeed\.com\//i.test(u) && /[?&]v?jk=[0-9a-f]{8,}/i.test(u)
+    ? 'Indeed'
+    : /^https?:\/\/(?:www\.)?wuzzuf\.net\/jobs\/p\//i.test(u)
+      ? 'Wuzzuf'
+      : /^https?:\/\/jobs\.workable\.com\/view\//i.test(u)
+        ? 'Workable'
+        : null;
+const isBoardJob = (u: string) => !!boardOf(u);
+const isImportableJob = (u: string) => isLinkedInJob(u) || isWorkableJob(u) || isBoardJob(u);
+const siteName = (u: string) => boardOf(u) ?? (isWorkableJob(u) ? 'Workable' : 'LinkedIn');
 
 /** Placeholder company id: "a new company from the imported posting, created on save". */
 const NEW_COMPANY = -1;

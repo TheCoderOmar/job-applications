@@ -5,12 +5,13 @@ import Icon from '../components/Icon';
 
 /**
  * The browser extension's small window: just the "Log application" form, filled from the page you
- * were on (?import=<link>&title=<page title>). Saving closes the window.
+ * were on (?import=<link>&title=<page title>, &page=<id> when it sent the page itself). Saving closes the window.
  */
 export default function QuickAdd() {
   const [params] = useSearchParams();
   const url = params.get('import') ?? '';
   const title = params.get('title') ?? '';
+  const page = params.get('page') ?? undefined;
   const [saved, setSaved] = useState<{ id: number; title: string } | null>(null);
 
   if (saved)
@@ -41,6 +42,7 @@ export default function QuickAdd() {
         <JobForm
           initial={url ? { url, title: title || undefined } : undefined}
           autoImport={url || undefined}
+          autoImportPage={page}
           onCancel={() => window.close()}
           onSaved={(j) => {
             setSaved({ id: j.id, title: j.title });

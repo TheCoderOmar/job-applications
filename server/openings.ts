@@ -28,10 +28,10 @@ const decode = (s: string) => {
   }
   return s;
 };
-const text = (html: string) => decode(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+export const text = (html: string) => decode(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function get(url: string, init: RequestInit = {}): Promise<Response> {
+export async function get(url: string, init: RequestInit = {}): Promise<Response> {
   return fetch(url, {
     redirect: 'follow',
     signal: AbortSignal.timeout(15000),

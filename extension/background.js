@@ -7,6 +7,6 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'import-link' && info.linkUrl) sendToTracker(info.linkUrl, info.selectionText || '');
-  if (info.menuItemId === 'import-page' && tab?.url) sendToTracker(tab.url, tab.title);
+  if (info.menuItemId === 'import-link' && info.linkUrl) sendToTracker(info.linkUrl, info.selectionText || '', tab, true);
+  if (info.menuItemId === 'import-page' && tab?.url) sendToTracker(tab.url, tab.title, tab);
 });

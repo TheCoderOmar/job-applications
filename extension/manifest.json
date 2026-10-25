@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Importer",
-  "version": "1.1.0",
-  "description": "Send the job you're looking at (LinkedIn job or post, Workable) to your local Job Tracker.",
+  "version": "1.2.0",
+  "description": "Send the job you're looking at (LinkedIn job or post, Workable, Indeed, Wuzzuf) to your local Job Tracker.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "Import to Job Tracker",
@@ -10,6 +10,6 @@
   },
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "background": { "service_worker": "background.js" },
-  "permissions": ["activeTab", "contextMenus", "storage"],
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"]
 }

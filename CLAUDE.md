@@ -29,7 +29,7 @@ server/jobpages.ts   Indeed / Wuzzuf / jobs.workable.com job pages (schema.org J
 server/cvs.ts        CV file checks, default labels, Content-Disposition (keeps the original file name)
 server/quiz.ts       question-file parsing (role → topics → mcq/card questions), shuffle
 src/pages/*          Dashboard, Companies, Applications (Jobs.tsx), Openings, Contacts, Map, Settings
-src/components/*     JobForm (import, steps), Steps, FlowChart, DateInput, Contacts, CompanyLogo…
+src/components/*     JobForm (import, steps), Steps, FlowChart (layout in flowLayout.ts: a band that skips a stage gets invisible `pass` stops so it runs under that column, tested), DateInput, Contacts, CompanyLogo…
 src/dates.ts         all dates shown day/month/year
 extension/           Chrome/Edge MV3 extension: opens a small popup window on /quick?import=<url>&title=… (QuickAdd page, no menu)
 ```

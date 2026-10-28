@@ -9,7 +9,7 @@
     "dev:web": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test server/*.test.ts"
+    "test": "tsx --test server/*.test.ts src/components/*.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

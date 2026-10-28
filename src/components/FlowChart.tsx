@@ -1,21 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { sankey, sankeyLeft, sankeyLinkHorizontal, type SankeyLink, type SankeyNode } from 'd3-sankey';
+import { sankeyLinkHorizontal } from 'd3-sankey';
 import type { SankeyData } from '../types';
+import { layoutFlow, type FlowLinkIn, type FlowNode, type FlowNodeIn } from './flowLayout';
 
-type NodeIn = SankeyData['nodes'][number] & { index: number };
-type N = SankeyNode<NodeIn, object>;
-type L = SankeyLink<NodeIn, object>;
-
-// Top to bottom within a column: progress, still waiting, no reply, closed.
-const RANK: Record<NodeIn['kind'], number> = { root: 0, stage: 0, open: 1, none: 2, lost: 3 };
-
-const LABEL_ROOM = 190; // px to the right of the last column for "Name: count"
-
-/**
- * Applications flowing through the stages they reached to how they ended.
- * Each node sits in the column right after where it came from (not all endings on the far right),
- * so "Ghosted after Applied" stays next to Applications instead of stretching across the chart.
- */
+/** Applications flowing through the stages they reached to how they ended (layout in flowLayout.ts). */
 export default function FlowChart({ data }: { data: SankeyData }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
@@ -31,54 +19,10 @@ export default function FlowChart({ data }: { data: SankeyData }) {
 
   const height = Math.max(300, Math.min(620, data.nodes.length * 44));
 
-  const layout = useMemo(() => {
-    if (!data.nodes.length) return null;
-    const gen = sankey<NodeIn, object>()
-      .nodeId((n) => n.index)
-      .nodeAlign(sankeyLeft)
-      .nodeWidth(10)
-      .nodePadding(22)
-      // No relaxation passes: every column stacks from the top in RANK order, so columns line up
-      // instead of drifting to different heights.
-      .iterations(0)
-      .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind] || (b.value ?? 0) - (a.value ?? 0))
-      .extent([
-        [2, 8],
-        [width - LABEL_ROOM, height - 8],
-      ]);
-    const graph = gen({
-      nodes: data.nodes.map((n, index) => ({ ...n, index })),
-      links: data.links.map((l) => ({ ...l })),
-    });
-    // Stack every column from the top in RANK order (progress, waiting, no reply, closed) so all
-    // columns start at the same height, then let d3 re-route the bands to the new positions.
-    const columns = new Map<number, N[]>();
-    for (const n of graph.nodes as N[]) columns.set(Math.round(n.x0 ?? 0), [...(columns.get(Math.round(n.x0 ?? 0)) ?? []), n]);
-    for (const col of columns.values()) {
-      col.sort((a, b) => RANK[a.kind] - RANK[b.kind] || (b.value ?? 0) - (a.value ?? 0));
-      let y = 8;
-      for (const n of col) {
-        const h = (n.y1 ?? 0) - (n.y0 ?? 0);
-        n.y0 = y;
-        n.y1 = y + h;
-        y += h + 22;
-      }
-    }
-    // Bands leave and arrive in the same order as the bars they connect, so none cross.
-    for (const n of graph.nodes as N[]) {
-      // Ties (two bars at the same height, e.g. a step that skipped a stage): the nearer one goes first,
-      // so a band that jumps a column runs underneath instead of twisting across the other.
-      const tx = (l: L) => (l.target as N).x0 ?? 0;
-      const sx = (l: L) => (l.source as N).x0 ?? 0;
-      (n.sourceLinks as L[] | undefined)?.sort((a, b) => ((a.target as N).y0 ?? 0) - ((b.target as N).y0 ?? 0) || tx(a) - tx(b));
-      (n.targetLinks as L[] | undefined)?.sort((a, b) => ((a.source as N).y0 ?? 0) - ((b.source as N).y0 ?? 0) || sx(b) - sx(a));
-    }
-    gen.update(graph);
-    return graph;
-  }, [data, width, height]);
+  const layout = useMemo(() => layoutFlow(data, width, height), [data, width, height]);
 
   if (!layout) return null;
-  const path = sankeyLinkHorizontal<NodeIn, object>();
+  const path = sankeyLinkHorizontal<FlowNodeIn, FlowLinkIn>();
 
   const show = (e: React.MouseEvent, title: string, count: number, color: string) => {
     const r = box.current!.getBoundingClientRect();
@@ -91,38 +35,48 @@ export default function FlowChart({ data }: { data: SankeyData }) {
       <div className="overflow-x-auto overflow-y-hidden">
       <svg width={width} height={height} role="img" aria-label="Where applications went">
         <g fill="none">
-          {(layout.links as L[]).map((l, i) => {
-            const s = l.source as N;
-            const t = l.target as N;
-            const active = hover?.title === `${s.name} → ${t.name}`;
-            return (
-              <path
-                key={i}
-                d={path(l) ?? undefined}
-                stroke={t.color}
-                strokeOpacity={active ? 0.6 : 0.3}
-                strokeWidth={Math.max(1.5, l.width ?? 1)}
-                onMouseMove={(e) => show(e, `${s.name} → ${t.name}`, l.value, t.color)}
-                onMouseLeave={() => setHover(null)}
-              />
-            );
-          })}
+          {layout.links.map((l, i) => (
+            <path
+              key={i}
+              d={path(l) ?? undefined}
+              stroke={l.color}
+              strokeOpacity={hover?.title === l.title ? 0.6 : 0.3}
+              strokeWidth={Math.max(1.5, l.width ?? 1)}
+              onMouseMove={(e) => show(e, l.title, l.value, l.color)}
+              onMouseLeave={() => setHover(null)}
+            />
+          ))}
         </g>
-        {(layout.nodes as N[]).map((n) => (
-          <rect
-            key={n.index}
-            x={n.x0}
-            y={n.y0}
-            width={(n.x1 ?? 0) - (n.x0 ?? 0)}
-            height={Math.max(2, (n.y1 ?? 0) - (n.y0 ?? 0))}
-            rx={2}
-            fill={n.color}
-            onMouseMove={(e) => show(e, n.name, n.count, n.color)}
-            onMouseLeave={() => setHover(null)}
-          />
-        ))}
+        {layout.nodes.map((n: FlowNode) =>
+          n.kind === 'pass' ? (
+            // Bridges the two halves of a band that passes under a stage, drawn like the band itself.
+            <rect
+              key={n.index}
+              x={n.x0}
+              y={n.y0}
+              width={(n.x1 ?? 0) - (n.x0 ?? 0)}
+              height={Math.max(1.5, (n.y1 ?? 0) - (n.y0 ?? 0))}
+              fill={n.color}
+              fillOpacity={hover?.title === n.name ? 0.6 : 0.3}
+              onMouseMove={(e) => show(e, n.name, n.count, n.color)}
+              onMouseLeave={() => setHover(null)}
+            />
+          ) : (
+            <rect
+              key={n.index}
+              x={n.x0}
+              y={n.y0}
+              width={(n.x1 ?? 0) - (n.x0 ?? 0)}
+              height={Math.max(2, (n.y1 ?? 0) - (n.y0 ?? 0))}
+              rx={2}
+              fill={n.color}
+              onMouseMove={(e) => show(e, n.name, n.count, n.color)}
+              onMouseLeave={() => setHover(null)}
+            />
+          ),
+        )}
         {/* Labels last, on a solid backing, so bands never run through the text. */}
-        {(layout.nodes as N[]).map((n) => {
+        {layout.nodes.filter((n) => n.kind !== 'pass').map((n: FlowNode) => {
           const label = `${n.name}: ${n.count}`;
           const x = (n.x1 ?? 0) + 6;
           const y = ((n.y0 ?? 0) + (n.y1 ?? 0)) / 2;

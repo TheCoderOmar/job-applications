@@ -36,7 +36,7 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 
 ## Domain rules
 
-- **Stages:** Saved → Applied → Screening → HR interview → Technical interview → Shortlisted → Final interview → Offer; closed: Rejected, Withdrawn, Ghosted. "Applied" = past the first stage.
+- **Stages:** Saved → Applied → Screening → HR interview → Technical interview → Managerial interview → Shortlisted → Final interview → Offer; closed: Rejected, Withdrawn, Ghosted. "Applied" = past the first stage.
 - **Steps** (`stage_history`) are editable with dates; the job's stage is its latest step and its applied date the first step past Saved (`syncFromHistory`). Manual steps are stored at 12:00 on their day. Changing "Applied on" moves the Applied step (`alignAppliedStep`).
 - **Ghosting:** an applied job in an open stage with no new step for 60 days → Ghosted (startup, every 12 h, and on save). A LinkedIn posting showing "No longer accepting applications" → Ghosted, never Rejected.
 - **Applied via:** email / company website / LinkedIn / other. Imported LinkedIn jobs → LinkedIn; Workable → company website; Indeed/Wuzzuf → other. A LinkedIn link picked by hand is usually a recruiter's **post** ("LinkedIn post link").

@@ -88,6 +88,7 @@ export const DEFAULT_STAGES: [string, string, string][] = [
   ['Screening', '#c98500', 'active'],
   ['HR interview', '#d55181', 'active'],
   ['Technical interview', '#b46fd8', 'active'],
+  ['Managerial interview', '#3fa7d6', 'active'],
   ['Shortlisted', '#4c9a2a', 'active'],
   ['Final interview', '#2bb3c0', 'active'],
   ['Offer', '#008300', 'closed_won'],
@@ -244,6 +245,23 @@ function addShortlistedStage() {
   })();
 }
 addShortlistedStage();
+
+/** Adds a "Managerial interview" stage right after "Technical interview" (once; skipped if you already have one). */
+function addManagerialStage() {
+  if (db.prepare(`SELECT 1 FROM settings WHERE key = 'managerial_stage_added'`).get()) return;
+  db.transaction(() => {
+    const has = db.prepare(`SELECT 1 FROM stages WHERE lower(name) = 'managerial interview'`).get();
+    const tech = db.prepare(`SELECT sort_order FROM stages WHERE lower(name) = 'technical interview'`).get() as
+      | { sort_order: number }
+      | undefined;
+    if (!has && tech) {
+      db.prepare('UPDATE stages SET sort_order = sort_order + 1 WHERE sort_order > ?').run(tech.sort_order);
+      db.prepare(`INSERT INTO stages (name, color, sort_order, kind) VALUES ('Managerial interview', '#3fa7d6', ?, 'active')`).run(tech.sort_order + 1);
+    }
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('managerial_stage_added', '1')`).run();
+  })();
+}
+addManagerialStage();
 
 /**
  * Lets a job's work type be "unknown". SQLite can't change a CHECK in place, so the jobs table is

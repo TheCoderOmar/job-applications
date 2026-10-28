@@ -189,6 +189,7 @@ export default function JobDetail() {
           <JobForm
             initial={job}
             onCancel={() => setEditing(false)}
+            onDeleted={() => navigate('/jobs')}
             onSaved={() => {
               setEditing(false);
               load();

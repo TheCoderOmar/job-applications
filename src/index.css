@@ -17,6 +17,40 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #1e2a44; border-radius: 999px; border: 2px solid #05070d; }
   ::-webkit-scrollbar-thumb:hover { background: #2b3c60; }
+
+  /* Dropdowns: our own chevron (same size and inset as DateInput's calendar icon) instead of the browser's. */
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238aa0c8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.25rem center;
+    background-size: 0.875rem;
+    padding-right: 1.5rem;
+  }
+  /* Edge/Chrome 135+: the open list is styleable too, so it matches the app instead of Windows. */
+  @supports (appearance: base-select) {
+    select, ::picker(select) { appearance: base-select; }
+    select::picker-icon { display: none; }
+    ::picker(select) {
+      margin-top: 4px;
+      padding: 4px;
+      border: 1px solid #1e2a44;
+      border-radius: 0.5rem;
+      background: #0b1220;
+      color: #e5edff;
+      box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.7), 0 0 18px -6px rgba(59, 130, 246, 0.45);
+      max-height: min(20rem, 60vh);
+    }
+    option {
+      padding: 0.375rem 0.625rem;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      background: transparent !important; /* beats the inline option backgrounds kept for older browsers */
+    }
+    option::checkmark { display: none; }
+    option:hover, option:focus-visible { background: #111a2e !important; outline: none; }
+    option:checked { color: #60a5fa !important; font-weight: 500; }
+  }
 }
 
 @layer components {
@@ -30,6 +64,7 @@
     @apply w-full rounded-lg bg-ink/70 border border-line px-3 py-2 text-sm text-fg placeholder:text-muted/60
       outline-none transition focus:border-brand focus:shadow-glow;
   }
+  select.input { background-position: right 0.75rem center; background-size: 1rem; padding-right: 2.5rem; }
   .label { @apply block text-xs font-medium uppercase tracking-wide text-muted mb-1.5; }
   .chip { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium; }
   .page-title { @apply text-2xl font-semibold tracking-tight; }

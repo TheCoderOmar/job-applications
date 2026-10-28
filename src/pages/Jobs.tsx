@@ -239,6 +239,10 @@ export default function Jobs() {
           <JobForm
             initial={editing}
             onCancel={() => setEditing(null)}
+            onDeleted={() => {
+              setEditing(null);
+              load();
+            }}
             onSaved={() => {
               setEditing(null);
               load();

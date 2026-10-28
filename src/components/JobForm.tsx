@@ -12,6 +12,8 @@ interface Props {
   initial?: Partial<Job> & { referrers?: Contact[] };
   onSaved: (j: Job) => void;
   onCancel: () => void;
+  /** Editing only: shows "Delete application" (asks first, then calls this once it's gone). */
+  onDeleted?: () => void;
   /** A job link to import as soon as the form is ready (from the browser extension). */
   autoImport?: string;
   /** The job page the extension sent with it (Indeed and Wuzzuf can only be read that way). */
@@ -26,7 +28,7 @@ const CONTACT_LABEL: Record<string, string> = {
   other: 'Where you applied',
 };
 
-export default function JobForm({ initial, onSaved, onCancel, autoImport, autoImportPage }: Props) {
+export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImport, autoImportPage }: Props) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
   const [cvs, setCvs] = useState<Cv[]>([]);
@@ -190,6 +192,16 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport, autoIm
     (d.apply_channel === 'other' && isBoardJob(d.url ?? ''));
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
   const isEdit = !!initial?.id;
+
+  async function remove() {
+    if (!confirm(`Delete "${initial?.title ?? 'this application'}"? Its steps go with it. This cannot be undone.`)) return;
+    try {
+      await api.deleteJob(initial!.id!);
+      onDeleted!();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -375,6 +387,11 @@ export default function JobForm({ initial, onSaved, onCancel, autoImport, autoIm
 
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">
+        {isEdit && onDeleted && (
+          <button type="button" className="btn-danger mr-auto" onClick={remove} disabled={saving}>
+            <Icon name="trash" /> Delete application
+          </button>
+        )}
         <button type="button" className="btn-ghost" onClick={onCancel}>
           Cancel
         </button>

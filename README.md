@@ -1,6 +1,8 @@
 # Job Tracker
 
-Track companies, the jobs they post, and where each application stands. Includes a dark map of company locations and pipeline charts.
+<p align="center"><img src="docs/demo.gif" alt="Job Tracker: dashboard with the application flow, applications, companies and openings" width="900"></p>
+
+Local job-application tracker: every company, job and stage, with LinkedIn imports, contacts, a company map and a flow chart of where applications went.
 
 ## Run
 
@@ -77,3 +79,7 @@ Import the job you're looking at straight into the app.
 Indeed and Wuzzuf block the app from reading their pages, so for them the extension sends the page you have open (pasting their links into the form won't fill it). On Indeed's search page it reads the job open on the right. After updating the extension to 1.2.0, click **Reload** on its card once (it asks to read the page you click it on).
 
 You can also right-click a job link (or any page) → **Import this job to Job Tracker**. Other sites get their link and page title filled in. The popup shows a green dot when the app is reachable; change the app address under **App address** if it isn't `http://localhost:5173`. After changing extension files, click **Reload** on its card in the extensions page.
+
+## License
+
+[MIT](LICENSE)

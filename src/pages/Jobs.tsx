@@ -35,7 +35,8 @@ export default function Jobs() {
   const [editing, setEditing] = useState<JobDetail | null>(null);
   const edit = (j: Job) => api.job(j.id).then(setEditing);
 
-  const applied = params.get('all') !== '1';
+  // Default: every job, not applied yet included (Omar's choice); ?applied=1 shows applied ones only.
+  const applied = params.get('applied') === '1';
   const stageId = params.get('stage') ?? '';
   const companyId = params.get('company') ?? '';
   const channel = params.get('channel') ?? '';
@@ -59,7 +60,7 @@ export default function Jobs() {
   const showSaved = (j: Job) => {
     if (applied && !j.applied_date) {
       const next = new URLSearchParams(params);
-      next.set('all', '1');
+      next.delete('applied');
       ['new', 'import', 'title'].forEach((k) => next.delete(k));
       setParams(next, { replace: true });
     } else load();
@@ -162,14 +163,14 @@ export default function Jobs() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg border border-line p-0.5">
           {[
-            ['', 'Applied'],
-            ['1', 'Include not applied yet'],
+            ['', 'Include not applied yet'],
+            ['1', 'Applied'],
           ].map(([v, label]) => (
             <button
               key={label}
-              onClick={() => setParam('all', v)}
+              onClick={() => setParam('applied', v)}
               className={`rounded-md px-3 py-1.5 text-sm transition ${
-                (applied ? '' : '1') === v ? 'bg-brand/20 text-brand-light' : 'text-muted hover:text-fg'
+                (applied ? '1' : '') === v ? 'bg-brand/20 text-brand-light' : 'text-muted hover:text-fg'
               }`}
             >
               {label}

@@ -192,6 +192,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     (d.apply_channel === 'other' && isBoardJob(d.url ?? ''));
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
   const isEdit = !!initial?.id;
+  const notApplied = !!stages.length && d.stage_id === stages[0].id;
 
   async function remove() {
     if (!confirm(`Delete "${initial?.title ?? 'this application'}"? Its steps go with it. This cannot be undone.`)) return;
@@ -281,7 +282,15 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         </div>
         <div>
           <label className="label">Stage</label>
-          <select className="input" value={d.stage_id ?? ''} onChange={(e) => set('stage_id', Number(e.target.value))}>
+          <select
+            className="input"
+            value={d.stage_id ?? ''}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              // Back to the first stage (Saved): not applied, so no applied date.
+              setD((prev) => ({ ...prev, stage_id: id, applied_date: id === stages[0]?.id ? null : prev.applied_date }));
+            }}
+          >
             {stages.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -304,7 +313,20 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         </div>
         <div>
           <label className="label">Applied on</label>
-          <DateInput value={d.applied_date ?? ''} max={todayIso()} onChange={(v) => set('applied_date', v || null)} aria-label="Applied on" />
+          <DateInput
+            value={d.applied_date ?? ''}
+            max={todayIso()}
+            placeholder={notApplied ? 'Not applied yet' : undefined}
+            onChange={(v) =>
+              // A date on a job still in the first stage (Saved) means you applied: move it to the next stage.
+              setD((prev) => ({
+                ...prev,
+                applied_date: v || null,
+                stage_id: v && prev.stage_id === stages[0]?.id && stages[1] ? stages[1].id : prev.stage_id,
+              }))
+            }
+            aria-label="Applied on"
+          />
         </div>
         <div>
           <label className="label">Salary</label>
@@ -383,7 +405,10 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         <label className="label">Notes</label>
         <textarea className="input min-h-[70px]" value={d.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
       </div>
-      <p className="text-xs text-muted">Leave "Applied on" empty: it fills in today's date when you move the job past the first stage.</p>
+      <p className="text-xs text-muted">
+        Not applied yet? Leave the stage on {stages[0]?.name ?? 'the first stage'} and "Applied on" empty. If you applied, an empty "Applied on" means
+        today.
+      </p>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">

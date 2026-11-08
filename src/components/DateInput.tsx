@@ -8,6 +8,8 @@ interface Props {
   onChange: (iso: string) => void;
   max?: string;
   required?: boolean;
+  /** Shown when empty (default dd/mm/yyyy). */
+  placeholder?: string;
   className?: string;
   /** Small, borderless (inline in a list). */
   compact?: boolean;
@@ -18,7 +20,7 @@ interface Props {
  * A date box that always reads day/month/year, whatever the browser's language.
  * Type it (26/07/2026) or pick it from the calendar button, which opens the browser's own picker.
  */
-export default function DateInput({ value, onChange, max, required, className = '', compact = false, ...rest }: Props) {
+export default function DateInput({ value, onChange, max, required, placeholder, className = '', compact = false, ...rest }: Props) {
   const [text, setText] = useState(value ? dmy(value) : '');
   const [bad, setBad] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -49,7 +51,7 @@ export default function DateInput({ value, onChange, max, required, className = 
     <div className={`relative ${compact ? 'inline-flex items-center' : ''} ${className}`}>
       <input
         className={`${box} tabular-nums ${bad ? (compact ? 'text-red-400' : 'border-red-500/60') : ''}`}
-        placeholder="dd/mm/yyyy"
+        placeholder={placeholder ?? 'dd/mm/yyyy'}
         inputMode="numeric"
         value={text}
         required={required}

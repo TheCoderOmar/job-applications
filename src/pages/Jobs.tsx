@@ -55,6 +55,16 @@ export default function Jobs() {
     api.companies().then(setCompanies);
   }, []);
 
+  /** A job saved as not applied yet would vanish from the "Applied" view: show all jobs instead. */
+  const showSaved = (j: Job) => {
+    if (applied && !j.applied_date) {
+      const next = new URLSearchParams(params);
+      next.set('all', '1');
+      ['new', 'import', 'title'].forEach((k) => next.delete(k));
+      setParams(next, { replace: true });
+    } else load();
+  };
+
   const clearImportParams = () => {
     const next = new URLSearchParams(params);
     ['new', 'import', 'title'].forEach((k) => next.delete(k));
@@ -243,9 +253,9 @@ export default function Jobs() {
               setEditing(null);
               load();
             }}
-            onSaved={() => {
+            onSaved={(j) => {
               setEditing(null);
-              load();
+              showSaved(j);
             }}
           />
         </Modal>
@@ -267,10 +277,10 @@ export default function Jobs() {
               setAdding(false);
               clearImportParams();
             }}
-            onSaved={() => {
+            onSaved={(j) => {
               setAdding(false);
               clearImportParams();
-              load();
+              showSaved(j);
             }}
           />
         </Modal>

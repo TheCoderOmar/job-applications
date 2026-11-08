@@ -254,7 +254,9 @@ function normalizeJob(body: Row) {
   if (!CHANNELS.includes(String(j.apply_channel))) j.apply_channel = null;
   j.cv_id = numOrNull(j.cv_id);
   if (j.cv_id !== null && !db.prepare('SELECT 1 FROM cvs WHERE id = ?').get(j.cv_id)) j.cv_id = null;
-  if (!j.applied_date && isPastFirstStage(j.stage_id as number)) j.applied_date = today();
+  // "Applied" means past the first stage: a job still there (Saved) has no applied date.
+  if (!isPastFirstStage(j.stage_id as number)) j.applied_date = null;
+  else if (!j.applied_date) j.applied_date = today();
   return j;
 }
 
@@ -598,7 +600,7 @@ app.patch('/api/jobs/:id/stage', (req, res) => {
   if (!prev) return res.status(404).json({ error: 'Job not found' });
   if (prev.stage_id !== stageId) {
     db.transaction(() => {
-      const applied = prev.applied_date ?? (isPastFirstStage(stageId) ? today() : null);
+      const applied = isPastFirstStage(stageId) ? (prev.applied_date ?? today()) : null;
       db.prepare(`UPDATE jobs SET stage_id = ?, applied_date = ?, updated_at = datetime('now') WHERE id = ?`).run(
         stageId,
         applied,
@@ -627,10 +629,12 @@ function syncFromHistory(jobId: number | string) {
     .all(jobId) as { stage_id: number; day: string }[];
   if (!steps.length) return;
   const first = firstStageId();
+  const latest = steps[steps.length - 1].stage_id;
   const applied = steps.find((s) => s.stage_id !== first)?.day ?? null;
+  // Back in the first stage (Saved) = not applied: no applied date.
   db.prepare(
-    `UPDATE jobs SET stage_id = ?, applied_date = COALESCE(?, applied_date), updated_at = datetime('now') WHERE id = ?`,
-  ).run(steps[steps.length - 1].stage_id, applied, jobId);
+    `UPDATE jobs SET stage_id = ?, applied_date = CASE WHEN ? THEN NULL ELSE COALESCE(?, applied_date) END, updated_at = datetime('now') WHERE id = ?`,
+  ).run(latest, latest === first ? 1 : 0, applied, jobId);
 }
 
 /** "2026-10-05" → stored at noon so it sorts within the day and shows the same date everywhere. */

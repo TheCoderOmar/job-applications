@@ -37,7 +37,8 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 ## Domain rules
 
 - **Stages:** Saved → Applied → Screening → HR interview → Technical interview → Managerial interview → Shortlisted → Final interview → Offer; closed: Rejected, Withdrawn, Ghosted. "Applied" = past the first stage.
-- **Steps** (`stage_history`) are editable with dates; the job's stage is its latest step and its applied date the first step past Saved (`syncFromHistory`). Manual steps are stored at 12:00 on their day. Changing "Applied on" moves the Applied step (`alignAppliedStep`).
+- **Steps** (`stage_history`) are editable with dates; the job's stage is its latest step and its applied date the first step past Saved (`syncFromHistory`). Manual steps are stored at 12:00 on their day. Changing "Applied on" moves the Applied step (`alignAppliedStep`). A job in the first stage (Saved) never has an applied date (server clears it); in the form, entering "Applied on" on a Saved job moves it to Applied, and picking Saved clears the date. Steps may be dated in the **future** (an interview Omar's been invited to; shown "Upcoming"); "Applied on" stays capped at today.
+- **Saving a not-applied job** from the Applications list switches it to "Include not applied yet" so the job doesn't vanish (Omar logged a job twice because of that).
 - **Ghosting:** an applied job in an open stage with no new step for 60 days → Ghosted (startup, every 12 h, and on save). A LinkedIn posting showing "No longer accepting applications" → Ghosted, never Rejected.
 - **Applied via:** email / company website / LinkedIn / other. Imported LinkedIn jobs → LinkedIn; Workable → company website; Indeed/Wuzzuf → other. A LinkedIn link picked by hand is usually a recruiter's **post** ("LinkedIn post link").
 - **Referrers:** up to 3 contacts per application. **Talked to:** counts from LinkedIn `messages.csv` (never message text) or marked by hand (`talked_at`).

@@ -74,7 +74,8 @@ export default function StepsEditor({
               </option>
             ))}
           </select>
-          <DateInput value={date} max={todayIso()} onChange={setDate} required aria-label="Step date" />
+          {/* Future dates are fine: an interview you've been invited to. */}
+          <DateInput value={date} onChange={setDate} required aria-label="Step date" />
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-ghost px-2.5 py-1 text-xs" onClick={() => setAdding(false)}>
               Cancel
@@ -122,15 +123,19 @@ export default function StepsEditor({
             <DateInput
               compact
               value={dayOf(h.changed_at)}
-              max={todayIso()}
               onChange={(v) => v && run(() => api.updateStep(job.id, h.id, { date: v }))}
               aria-label={`${h.stage_name} date`}
             />
+            {dayOf(h.changed_at) > todayIso() && (
+              <span className="ml-1.5 rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-light">
+                Upcoming
+              </span>
+            )}
           </li>
         ))}
       </ol>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      <p className="mt-3 text-xs text-muted">The latest step is the application's current stage.</p>
+      <p className="mt-3 text-xs text-muted">The latest step is the application's current stage. Add an interview you've been invited to on its future date.</p>
     </section>
   );
 }

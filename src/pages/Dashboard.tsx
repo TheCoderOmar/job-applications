@@ -183,8 +183,8 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Tile label="Companies" value={totals.companies} hint={`${totals.remote_companies} remote`} to="/companies" />
-        <Tile label="Jobs tracked" value={totals.jobs} to="/jobs?all=1" />
-        <Tile label="Applied" value={totals.applied} to="/jobs" />
+        <Tile label="Jobs tracked" value={totals.jobs} to="/jobs" />
+        <Tile label="Applied" value={totals.applied} to="/jobs?applied=1" />
         <Tile label="In progress" value={totals.in_progress} hint="applied, still open" />
         <Tile label="Offers" value={totals.won} />
         <Tile label="Closed" value={totals.lost} hint="rejected / withdrawn / ghosted" />

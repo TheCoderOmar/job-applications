@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalCompanyUrl, parseCompanyPage } from './linkedin.js';
+import { canonicalCompanyUrl, fetchLinkedInCompany, parseCompanyPage } from './linkedin.js';
 
 test('canonicalCompanyUrl accepts the usual link shapes', () => {
   const want = 'https://www.linkedin.com/company/acme';
@@ -97,4 +97,20 @@ test('isLinkedInPost and parsePostPage', async () => {
     author: 'Sara Hassan',
     posted_at: '2026-10-01T10:00:00Z',
   });
+});
+
+test('fetchLinkedInCompany asks as a link-preview bot (LinkedIn answers browsers with a 403 challenge)', async (t) => {
+  let ua = '';
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    ua = new Headers(init.headers).get('user-agent') ?? '';
+    return new Response('<meta property="og:title" content="Acme | LinkedIn">', { status: 200 });
+  });
+  const c = await fetchLinkedInCompany('linkedin.com/company/acme');
+  assert.equal(c.name, 'Acme');
+  assert.match(ua, /facebookexternalhit/);
+});
+
+test('fetchLinkedInCompany says the link is wrong on a 404', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 404 }));
+  await assert.rejects(fetchLinkedInCompany('linkedin.com/company/nope'), /no company page at that link/);
 });

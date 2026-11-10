@@ -98,8 +98,14 @@ export function parseCompanyPage(html: string, linkedin: string): LinkedInCompan
 export async function fetchLinkedInCompany(input: string): Promise<LinkedInCompany> {
   const url = canonicalCompanyUrl(input);
   if (!url) throw new Error('That is not a LinkedIn company link (it should look like linkedin.com/company/name).');
-  const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' }, redirect: 'follow' });
-  if (res.status === 404) throw new Error('LinkedIn has no company page at that link.');
+  // LinkedIn answers logged-out browsers with a 403 "Just a moment..." challenge (since Nov 2026),
+  // but still serves the public company page to link-preview bots, same as profiles and posts below.
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'facebookexternalhit/1.1', 'Accept-Language': 'en-US,en;q=0.9' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 404) throw new Error('LinkedIn has no company page at that link. Check the name after /company/.');
   if (!res.ok) throw new Error(`LinkedIn did not answer (status ${res.status}). Try again in a minute.`);
   const html = await res.text();
   const data = parseCompanyPage(html, url);

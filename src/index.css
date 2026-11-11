@@ -108,3 +108,18 @@
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3), 0 0 18px 4px rgba(59, 130, 246, 0.6);
 }
 .pin-remote { background: #22d3ee; color: #22d3ee; border-style: dashed; }
+/* Map: the clicked company's offices stand out, everyone else's fade back. */
+.pin.pin-selected {
+  width: 22px; height: 22px;
+  background: #fbbf24; color: #fbbf24; border-color: #fff7e0;
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.35), 0 0 18px 4px rgba(251, 191, 36, 0.7);
+  animation: pin-pulse 1.6s ease-out infinite;
+}
+.pin.pin-dim { opacity: 0.3; box-shadow: none; }
+@keyframes pin-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6), 0 0 18px 4px rgba(251, 191, 36, 0.7); }
+  100% { box-shadow: 0 0 0 14px rgba(251, 191, 36, 0), 0 0 18px 4px rgba(251, 191, 36, 0.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin.pin-selected { animation: none; }
+}

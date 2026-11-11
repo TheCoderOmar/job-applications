@@ -173,17 +173,18 @@ export const needsExtension = (board: JobBoard) =>
   `${SITE[board]} blocks the app from reading its pages. Open the job in your browser and click the Job Tracker extension.`;
 
 // Pages sent by the extension, kept briefly until its window asks for them.
-const pages = new Map<string, { url: string; html: string; at: number }>();
+// `data` is what the extension read from the page itself (LinkedIn location cards, a profile's top card…).
+const pages = new Map<string, { url: string; html: string; data?: unknown; at: number }>();
 const PAGE_TTL = 30 * 60 * 1000;
 
-export function keepPage(url: string, html: string, now = Date.now()): string {
+export function keepPage(url: string, html: string, now = Date.now(), data?: unknown): string {
   for (const [id, p] of pages) if (now - p.at > PAGE_TTL) pages.delete(id);
   const id = crypto.randomUUID();
-  pages.set(id, { url, html, at: now });
+  pages.set(id, data === undefined ? { url, html, at: now } : { url, html, data, at: now });
   return id;
 }
 
-export function keptPage(id: string, now = Date.now()): { url: string; html: string } | null {
+export function keptPage(id: string, now = Date.now()): { url: string; html: string; data?: unknown } | null {
   const p = pages.get(id);
   return p && now - p.at <= PAGE_TTL ? p : null;
 }

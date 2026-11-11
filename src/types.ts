@@ -33,7 +33,17 @@ export interface Contact {
   last_message_at: string | null;
   /** Date you marked "talked to" by hand, or null. */
   talked_at: string | null;
+  /** Where you stand with them; null = no status yet. */
+  status: ContactStatus | null;
+  favorite: number;
 }
+
+export type ContactStatus = 'message_sent' | 'chatting' | 'referred';
+export const CONTACT_STATUS: Record<ContactStatus, { label: string; color: string }> = {
+  message_sent: { label: 'Message sent', color: '#60a5fa' },
+  chatting: { label: 'Chatting', color: '#fbbf24' },
+  referred: { label: 'Referred', color: '#34d399' },
+};
 
 export interface Stage {
   id: number;
@@ -70,6 +80,7 @@ export interface Company {
   maps_link: string | null;
   created_at: string;
   job_count: number;
+  locations: CompanyLocation[];
 }
 
 export interface Job {
@@ -204,7 +215,40 @@ export interface LinkedInCompany {
   headquarters: string | null;
   founded: string | null;
   logo_url: string | null;
-  existing: { id: number; name: string } | null;
+  locations: FoundLocation[];
+  existing: { id: number; name: string; location_count?: number } | null;
+}
+
+/** A company as sent to the server: its locations may be new (no id) or found on LinkedIn. */
+export type LocationDraft = Partial<Omit<CompanyLocation, 'is_primary'>> & { is_primary?: boolean | number };
+export type CompanyInput = Partial<Omit<Company, 'locations'>> & { locations?: LocationDraft[] };
+
+/** An office read from LinkedIn, before it's saved. */
+export interface FoundLocation {
+  label: string | null;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  is_primary: boolean;
+}
+
+/** A saved office. The primary one is also the company's own address/lat/lng. */
+export interface CompanyLocation {
+  id: number;
+  company_id: number;
+  label: string | null;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  lat: number | null;
+  lng: number | null;
+  maps_link: string | null;
+  /** exact | street | area | city | manual */
+  precision: string | null;
+  /** null = not looked up yet */
+  geocode_status: 'found' | 'not_found' | null;
+  is_primary: number;
+  sort_order: number;
 }
 
 export interface Opening {

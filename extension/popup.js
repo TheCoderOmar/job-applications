@@ -5,10 +5,17 @@
 
   document.getElementById('kind').textContent = kind || 'Any page';
   document.getElementById('title').textContent = cleanTitle(tab?.title) || url;
-  document.getElementById('hint').textContent = kind
-    ? 'Opens a small window with the title, company and description filled in. This tab stays as it is.'
-    : "This site can't be read automatically: the link and page title are filled in, add the rest yourself.";
-  if (!kind) document.getElementById('import').textContent = 'Log this page';
+  document.getElementById('hint').textContent =
+    kind === 'LinkedIn company'
+      ? 'Opens a small window with the company and all its locations, ready to add. This tab stays as it is.'
+      : kind === 'LinkedIn person'
+        ? 'Opens a small window with their name, position and company filled in. Their company is added too if you don\'t have it.'
+        : kind === 'LinkedIn post'
+          ? 'Opens a small window with the post as the job description and the company it\'s for. This tab stays as it is.'
+          : kind
+            ? 'Opens a small window with the title, company and description filled in. This tab stays as it is.'
+            : "This site can't be read automatically: the link and page title are filled in, add the rest yourself.";
+  document.getElementById('import').textContent = actionLabel(kind);
 
   document.getElementById('import').addEventListener('click', async () => {
     await sendToTracker(url, tab?.title, tab);

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { MapContainer, Marker } from 'react-leaflet';
+import { MapContainer, Marker, Tooltip } from 'react-leaflet';
+import L from 'leaflet';
+import { mapsSearch, pinNote } from '../components/LocationsEditor';
 import { api } from '../api';
 import { WORK_TYPE_LABELS, type Company, type Home, type Job, type Opening, type Stage } from '../types';
 import Icon, { type IconName } from '../components/Icon';
@@ -36,6 +38,14 @@ export default function CompanyDetail() {
     api.home().then(setHome);
   }, [load]);
 
+  // Offices still being looked up on the map: check again every few seconds until they're pinned.
+  const finding = !!company?.locations?.some((l) => l.lat == null && l.address && !l.geocode_status);
+  useEffect(() => {
+    if (!finding) return;
+    const t = setInterval(() => api.company(id!).then(setCompany).catch(() => {}), 4000);
+    return () => clearInterval(t);
+  }, [finding, id]);
+
   async function remove() {
     if (!company) return;
     if (!confirm(`Delete ${company.name} and its ${company.job_count} job(s)? This cannot be undone.`)) return;
@@ -53,6 +63,9 @@ export default function CompanyDetail() {
 
   const hasPin = company.lat != null && company.lng != null;
   const fromHome = home && hasPin ? formatKm(distanceKm(home, { lat: company.lat!, lng: company.lng! })) : null;
+  const locations = company.locations ?? [];
+  const pins = locations.filter((l) => l.lat != null && l.lng != null);
+  const bounds = pins.length > 1 ? L.latLngBounds(pins.map((l) => [l.lat!, l.lng!] as [number, number])).pad(0.2) : null;
 
   return (
     <div className="space-y-6">
@@ -114,23 +127,58 @@ export default function CompanyDetail() {
               {fromHome && <Fact label="From home" value={`~${fromHome} (straight line)`} />}
             </dl>
           )}
-          {company.address && <p className="text-sm text-muted">{company.address}</p>}
-          {company.maps_link && (
-            <a href={company.maps_link} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-brand-light hover:underline">
-              <Icon name="external" /> Open in Google Maps
-            </a>
+          {locations.length > 0 && (
+            <div className="border-t border-line pt-4">
+              <div className="label">{locations.length === 1 ? 'Location' : `Locations (${locations.length})`}</div>
+              <ul className="space-y-3">
+                {locations.map((l) => {
+                  const note = pinNote(l);
+                  const away = home && l.lat != null && l.lng != null ? formatKm(distanceKm(home, { lat: l.lat, lng: l.lng })) : null;
+                  return (
+                    <li key={l.id} className="text-sm">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{[l.city, l.country].filter(Boolean).join(', ') || l.address || 'Location'}</span>
+                        {l.is_primary && locations.length > 1 ? <span className="chip border border-brand/40 bg-brand/10 text-brand-light">Primary</span> : null}
+                      </div>
+                      {l.label && <div className="text-xs text-muted">{l.label}</div>}
+                      {l.address && <div className="text-muted">{l.address}</div>}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <span className={note.approx ? 'text-amber-300' : 'text-muted'}>{note.text}</span>
+                        {away && <span className="text-muted">~{away} from home</span>}
+                        <a
+                          href={l.maps_link || mapsSearch(l)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-brand-light hover:underline"
+                        >
+                          <Icon name="external" className="h-3 w-3" /> Open in Google Maps
+                        </a>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
-          {hasPin ? (
+          {pins.length ? (
             <div className="h-56 overflow-hidden rounded-lg border border-line">
-              <MapContainer center={[company.lat!, company.lng!]} zoom={13} scrollWheelZoom={false} className="h-full w-full">
+              <MapContainer
+                {...(bounds ? { bounds } : { center: [pins[0].lat!, pins[0].lng!] as [number, number], zoom: 13 })}
+                scrollWheelZoom={false}
+                className="h-full w-full"
+              >
                 <DarkTiles />
-                <Marker position={[company.lat!, company.lng!]} icon={pinIcon(!!company.is_remote)} />
+                {pins.map((l) => (
+                  <Marker key={l.id} position={[l.lat!, l.lng!]} icon={pinIcon(!!company.is_remote)}>
+                    {pins.length > 1 && <Tooltip>{[l.city, l.country].filter(Boolean).join(', ') || l.address}</Tooltip>}
+                  </Marker>
+                ))}
                 {home && <Marker position={[home.lat, home.lng]} icon={homeIcon} />}
               </MapContainer>
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">
-              No map location. Edit the company and paste a Google Maps link.
+              {finding ? 'Finding the address on the map…' : 'No map location. Edit the company and add an address or a Google Maps link.'}
             </div>
           )}
           {company.description && (

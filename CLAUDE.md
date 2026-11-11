@@ -25,6 +25,12 @@ server/db.ts         schema + one-time migrations (guarded by `settings` keys or
 server/contacts.ts   CSV parsing, LinkedIn connections/messages, company-name matching, Sankey data
 server/linkedin.ts   LinkedIn company pages, profiles, posts; logo lookup
 server/openings.ts   LinkedIn guest job search, careers pages + job boards, LinkedIn/Workable job import
+server/locations.ts  LinkedIn "Locations" cards/HTML → offices (country, tags, address, city)
+server/geocode.ts    address → pin (Nominatim; Google when settings.google_maps_key is set), fallback searches
+server/companyLocations.ts  company_locations storage, primary mirrored on companies, background geocode queue
+server/linkedinTab.ts what the extension reads from a LinkedIn tab; post → company guess
+server/defaults.ts   starter companies (seed/default-companies.json) on first run / from Settings
+server/update.ts     git fetch/ff-only update from origin/main
 server/jobpages.ts   Indeed / Wuzzuf / jobs.workable.com job pages (schema.org JobPosting), pages sent by the extension
 server/cvs.ts        CV file checks, default labels, Content-Disposition (keeps the original file name)
 server/quiz.ts       question-file parsing (role → topics → mcq/card questions), shuffle
@@ -45,6 +51,11 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 - **Openings** (separate from Applications): LinkedIn guest job search per company (company's country only) + careers pages via job-board feeds or JobPosting markup. Rate-limited: be gentle (delays, retries on 429).
 - **Indeed and Wuzzuf block server fetches** (Indeed: login/bot check 401/403; Wuzzuf: Cloudflare 403). The extension (`grabJobPage` in `extension/shared.js`, `scripting` permission) reads the page in the tab and POSTs it to `/api/import/page` (kept 30 min in memory); the QuickAdd window imports with `&page=<id>`. On Indeed's search page (`?vjk=`) it fetches `/viewjob?jk=` from inside the tab, falling back to the side panel (`vj-job-title`, `company-info-metadata`, `simple-job-description-html`). jobs.workable.com/view pages the server fetches itself.
 - **LinkedIn access without login:** job pages with a browser UA; company pages, profiles and posts only with the `facebookexternalhit/1.1` UA (link-preview bot). Since Nov 2026 LinkedIn answers browser-UA company requests with a 403 "Just a moment..." challenge (Fill from LinkedIn failed until the switch). If a company link 404s with the bot UA, the slug is wrong (e.g. Fekra is `fekra-egy`, not `fekra-egypt`). LinkedIn sometimes double-encodes entities: decode until stable.
+- **Company locations** (`company_locations`): a company has 0..n offices; the primary one is mirrored on `companies.address/city/country/lat/lng/maps_link` (`syncPrimary`) so old code keeps working. Saving a company with a `locations` array replaces them; without one, its flat address updates the primary. Pins: typed / Maps link = `manual`; else the background queue geocodes offices that have a street **address** (bare cities stay unpinned — Omar's 17 city-only companies). `precision` area/city is shown as approximate.
+- **Map highlight:** clicking a pin selects its company: its pins `pin-selected` (amber, pulse), others `pin-dim`; cleared on map click / popup close.
+- **Extension kinds:** job / post / company / profile (`linkedInKind`, same rules in `extension/shared.js` and `server/linkedinTab.ts`). For company/profile/post the tab's DOM is read (`grabLinkedIn`) and sent as `data` with the page to `/api/import/page`; QuickAdd `?kind=company|contact`. LinkedIn's logged-in DOM selectors are guesses — if an import comes back thin, ask Omar to save the page (Ctrl+S) and fix the parser with it as a fixture.
+- **Contacts:** `status` (message_sent | chatting | referred | NULL) and `favorite`; `PATCH /api/contacts/:id`. Becoming a referrer sets an empty status to referred.
+- **Starter companies:** `npm run companies:export` rebuilds `seed/default-companies.json` from data/jobs.db (read-only; drops notes, is_current, "CompanyNNN" placeholders and duplicate names). Loaded once on an empty DB (`default_companies_loaded` setting).
 - **Dates** show as dd/mm/yyyy everywhere (`DateInput`, `dmy`); the browser's native date input is only used for its calendar popup.
 - Work type includes `unknown` (default for new applications).
 - **Deleting an application:** "Delete" on the application page, and "Delete application" in the edit form (`onDeleted` prop on `JobForm`; only passed by the edit screens). Steps and referrers cascade; a linked opening is just unlinked.
@@ -59,4 +70,6 @@ extension/           Chrome/Edge MV3 extension: opens a small popup window on /q
 - The dev server runs migrations on the real DB as soon as `server/db.ts` is saved: back up `data/jobs.db` first (`data/jobs-backup-YYYY-MM-DD.db`, via sqlite's backup API since the DB is in WAL mode).
 - Headless Edge with `--remote-debugging-port` may listen on `[::1]` only, and its first page target can be an `edge://` dialog: pick the `about:blank` target. `select.showPicker()` needs `userGesture: true` in `Runtime.evaluate`.
 - In Python patch scripts, `\n` inside TS strings becomes a real newline: use the Edit tool for those lines.
-- Git: `main`, local only (no remote). Commit with the Co-Authored-By trailer; **never push** unless Omar asks.
+- Git: `main`; remote `origin` = github.com/TheCoderOmar/job-applications (friends clone it, and the in-app update pulls from its `main`). Commit with the Co-Authored-By trailer; **never push** unless Omar asks — but updates only reach other people once he pushes.
+- Windows scripts (`start.bat`, `setup.bat`, `scripts/make-shortcut.ps1`) must stay CRLF (`.gitattributes`). Writing `>nul` through Git Bash can turn into `>/dev/null`: check after writing .bat files.
+- Test servers: `JOBS_NO_UPDATE_CHECK=1` skips the GitHub check; `JOBS_NO_BROWSER=1` stops start.bat opening the browser; `APP_PORT` moves Vite.

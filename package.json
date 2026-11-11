@@ -1,7 +1,7 @@
 {
   "name": "job-tracker",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,cyan \"npm:dev:api\" \"npm:dev:web\"",
@@ -9,7 +9,9 @@
     "dev:web": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test server/*.test.ts src/components/*.test.ts"
+    "test": "tsx --test server/*.test.ts src/components/*.test.ts",
+    "companies:export": "tsx scripts/export-default-companies.ts",
+    "shortcut": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-shortcut.ps1"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

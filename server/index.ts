@@ -1,7 +1,19 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { db, seedStages } from './db.js';
+import { backfillLocations, db, seedStages } from './db.js';
+import {
+  addLocations, geocodeState, locationsOf, primaryFromCompany, queueGeocoding, replaceLocations, resolveLinks, withLocations,
+  type LocationInput,
+} from './companyLocations.js';
+import { mapsSearchLink } from './geocode.js';
+import { loadDefaultCompanies, loadDefaultsOnFirstRun, readDefaults } from './defaults.js';
+import { applyUpdate, blockedReason, checkForUpdate, type UpdateStatus } from './update.js';
+import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
+import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
-import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
+import {
+  fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, parseCompanyPage, parsePostPage, parseProfilePage,
+  canonicalProfileUrl, type LinkedInCompany, type LinkedInPost, type LinkedInProfile,
+} from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
@@ -85,8 +97,10 @@ async function runLogoQueue() {
       | undefined;
     if (c) {
       const logo = await findLogo(c).catch(() => null);
+      // The company may have been deleted while its logo was being fetched: then there's nothing to save.
       db.prepare(
-        `INSERT INTO company_logos (company_id, data, mime, status, fetched_at) VALUES (?, ?, ?, ?, datetime('now'))
+        `INSERT INTO company_logos (company_id, data, mime, status, fetched_at)
+         SELECT ?1, ?2, ?3, ?4, datetime('now') WHERE EXISTS (SELECT 1 FROM companies WHERE id = ?1)
          ON CONFLICT(company_id) DO UPDATE SET data = excluded.data, mime = excluded.mime, status = excluded.status, fetched_at = excluded.fetched_at`,
       ).run(id, logo?.data ?? null, logo?.mime ?? null, logo ? 'found' : 'none');
       if (logo) logoState.found++;
@@ -160,27 +174,152 @@ app.delete('/api/companies/:id/logo', (req, res) => {
 
 // ---------- LinkedIn company lookup ----------
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Fields of `b` that have a value win over `a`'s. */
+const overlay = <T extends object>(a: T, b: Partial<T> | null | undefined): T => {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b ?? {})) if (v !== null && v !== undefined && v !== '') (out as Record<string, unknown>)[k] = v;
+  return out;
+};
+
+/**
+ * A LinkedIn company page → its details and offices, plus the company if you already have it.
+ * With `page` (sent by the extension from your logged-in tab) the offices come from the tab's "Locations" cards;
+ * the public page (read as a link-preview bot) fills in the rest, or everything when there's no tab.
+ */
 app.post(
   '/api/linkedin/company',
   wrap(async (req, res) => {
+    const url = String(req.body.url ?? '');
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    let data: LinkedInCompany | null = null;
+    let error: Error | null = null;
     try {
-      const data = await fetchLinkedInCompany(String(req.body.url ?? ''));
-      const existing = db.prepare('SELECT id, name FROM companies WHERE linkedin = ? OR lower(name) = lower(?)').get(data.linkedin, data.name ?? '');
-      res.json({ ...data, existing: existing ?? null });
+      data = await fetchLinkedInCompany(url);
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept) {
+      const canonical = canonicalCompanyUrl(kept.url) ?? canonicalCompanyUrl(url) ?? url;
+      const tab = cleanTab<TabCompany>(kept.data);
+      const fromHtml = parseCompanyPage(kept.html, canonical);
+      const cards = tidyLocations((tab.cards ?? []).map((c) => parseLocationCard(Array.isArray(c?.lines) ? c.lines.map(String) : [], c?.heading)));
+      const locations = cards.length ? cards : fromHtml.locations.length ? fromHtml.locations : (data?.locations ?? []);
+      data = { ...overlay(fromHtml, data), name: data?.name ?? tab.name ?? fromHtml.name, linkedin: canonical, locations };
+    }
+    if (!data?.name) return res.status(422).json({ error: error?.message ?? 'No company name found on that page.' });
+    const existing = db
+      .prepare(
+        `SELECT id, name, (SELECT COUNT(*) FROM company_locations l WHERE l.company_id = c.id) AS location_count
+         FROM companies c WHERE linkedin = ? OR lower(name) = lower(?)`,
+      )
+      .get(data.linkedin, data.name);
+    res.json({ ...data, existing: existing ?? null });
   }),
 );
 
 app.get('/api/companies', (_req, res) => {
-  res.json(db.prepare(`${companySelect} GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all());
+  res.json(withLocations(db.prepare(`${companySelect} GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all() as { id: number }[]));
 });
 
+/** One company with its locations. */
+const companyOut = (id: number | string | bigint) => {
+  const row = db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(id) as Row | undefined;
+  return row ? { ...row, locations: locationsOf(Number(id)) } : undefined;
+};
+
+/** Saves the locations list sent with a company (or, without one, its single address as the primary location). */
+async function saveCompanyLocations(id: number | string, body: Row) {
+  if (Array.isArray(body.locations)) replaceLocations(id, await resolveLinks(body.locations as LocationInput[]));
+  else primaryFromCompany(id);
+  queueGeocoding();
+}
+
 app.get('/api/companies/:id', (req, res) => {
-  const row = db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(req.params.id);
+  const row = companyOut(req.params.id);
   if (!row) return res.status(404).json({ error: 'Company not found' });
   res.json(row);
+});
+
+/** Adds offices found on LinkedIn that the company doesn't have yet; they're pinned in the background. */
+app.post('/api/companies/:id/locations', (req, res) => {
+  if (!db.prepare('SELECT 1 FROM companies WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Company not found' });
+  const found = (Array.isArray(req.body.locations) ? req.body.locations : []) as ParsedLocation[];
+  const added = addLocations(req.params.id, found);
+  res.json({ added, company: companyOut(req.params.id) });
+});
+
+// ---------- Updates from GitHub ----------
+// Checked a few seconds after start and every 6 hours (never when JOBS_NO_UPDATE_CHECK is set, e.g. in tests).
+
+let update: UpdateStatus | null = null;
+const refreshUpdate = async () => {
+  if (process.env.JOBS_NO_UPDATE_CHECK) return;
+  update = await checkForUpdate();
+};
+setTimeout(() => void refreshUpdate(), 5000);
+setInterval(() => void refreshUpdate(), 6 * 60 * 60 * 1000);
+
+app.get(
+  '/api/update',
+  wrap(async (req, res) => {
+    if (req.query.refresh || !update) await refreshUpdate();
+    const s = update ?? (await checkForUpdate(undefined, false));
+    res.json({ ...s, blocked: s.behind ? blockedReason(s) : null });
+  }),
+);
+
+/** Fast-forwards to the latest version. The dev server then restarts by itself on the changed files. */
+app.post(
+  '/api/update',
+  wrap(async (_req, res) => {
+    try {
+      const r = await applyUpdate();
+      update = await checkForUpdate(undefined, false);
+      res.json(r);
+    } catch (e) {
+      res.status(409).json({ error: (e as Error).message });
+    }
+  }),
+);
+
+/** The starter companies (seed/default-companies.json): how many there are, and adding the ones you don't have. */
+app.get('/api/default-companies', (_req, res) => {
+  const list = readDefaults();
+  const have = new Set((db.prepare('SELECT lower(name) AS n FROM companies').all() as { n: string }[]).map((r) => r.n));
+  res.json({ total: list.length, missing: list.filter((c) => !have.has(c.name.trim().toLowerCase())).length });
+});
+app.post('/api/default-companies', (_req, res) => {
+  const added = loadDefaultCompanies();
+  queueLogos(missingLogoIds());
+  res.json({ added: added.length });
+});
+
+/** Pinning progress, and a Google Maps search link for checking a location by hand. */
+app.get('/api/geocode/status', (_req, res) => {
+  const pending = (db
+    .prepare(`SELECT COUNT(*) AS n FROM company_locations WHERE lat IS NULL AND geocode_status IS NULL AND trim(IFNULL(address, '')) != ''`)
+    .get() as { n: number }).n;
+  res.json({ ...geocodeState, pending });
+});
+app.post('/api/geocode/link', (req, res) => {
+  res.json({ link: mapsSearchLink({ address: req.body.address ?? null, city: req.body.city ?? null, country: req.body.country ?? null }) });
+});
+
+/** Optional Google Maps key for exact pins; without one, OpenStreetMap is used. The key itself is never sent back. */
+app.get('/api/settings/google-key', (_req, res) => {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = 'google_maps_key'`).get() as { value: string } | undefined;
+  res.json({ set: !!row?.value, hint: row?.value ? `…${row.value.slice(-4)}` : null });
+});
+app.put('/api/settings/google-key', (req, res) => {
+  const key = String(req.body.key ?? '').trim();
+  if (key) db.prepare(`INSERT INTO settings (key, value) VALUES ('google_maps_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key);
+  else db.prepare(`DELETE FROM settings WHERE key = 'google_maps_key'`).run();
+  // Locations OpenStreetMap couldn't find get another try with Google.
+  if (key) db.prepare(`UPDATE company_locations SET geocode_status = NULL WHERE geocode_status = 'not_found'`).run();
+  queueGeocoding();
+  res.json({ set: !!key, hint: key ? `…${key.slice(-4)}` : null });
 });
 
 app.post(
@@ -191,8 +330,10 @@ app.post(
     const cols = COMPANY_FIELDS.join(', ');
     const params = COMPANY_FIELDS.map((f) => '@' + f).join(', ');
     const info = db.prepare(`INSERT INTO companies (${cols}) VALUES (${params})`).run(c);
-    if (c.linkedin || c.website) queueLogos([Number(info.lastInsertRowid)]);
-    res.status(201).json(db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(info.lastInsertRowid));
+    const id = Number(info.lastInsertRowid);
+    await saveCompanyLocations(id, req.body);
+    if (c.linkedin || c.website) queueLogos([id]);
+    res.status(201).json(companyOut(id));
   }),
 );
 
@@ -213,9 +354,17 @@ app.put(
       db.prepare('DELETE FROM company_logos WHERE company_id = ?').run(req.params.id);
       queueLogos([Number(req.params.id)]);
     }
-    res.json(db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(req.params.id));
+    await saveCompanyLocations(req.params.id, req.body);
+    res.json(companyOut(req.params.id));
   }),
 );
+
+/** A company by name (any case), created with just the name when it isn't there yet. */
+function findOrCreateCompany(name: string): number {
+  const found = db.prepare('SELECT id FROM companies WHERE lower(name) = lower(?)').get(name) as { id: number } | undefined;
+  if (found) return found.id;
+  return Number(db.prepare('INSERT INTO companies (name) VALUES (?)').run(name).lastInsertRowid);
+}
 
 app.delete('/api/companies/:id', (req, res) => {
   db.prepare('DELETE FROM companies WHERE id = ?').run(req.params.id);
@@ -437,6 +586,8 @@ async function importJob(url: string, pageId: string | null) {
 app.post('/api/import/page', (req, res) => {
   const url = String(req.body.url ?? '');
   const html = String(req.body.html ?? '');
+  // LinkedIn company pages, profiles and posts come with what the extension read from them (`data`).
+  if (linkedInKind(url)) return res.json({ page: keepPage(url, html, Date.now(), req.body.data ?? null), url });
   if (!jobBoard(url) || !html) return res.status(400).json({ error: 'Send the job page link and its HTML.' });
   res.json({ page: keepPage(url, html), url: cleanJobUrl(url) });
 });
@@ -462,12 +613,25 @@ app.post(
 app.post(
   '/api/linkedin/post',
   wrap(async (req, res) => {
+    // From the extension: the post as your logged-in tab showed it (author's page and headline included).
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    const tab = kept ? cleanTab<TabPost>(kept.data) : {};
+    let p: LinkedInPost | null = null;
+    let error: Error | null = null;
     try {
-      const p = await fetchLinkedInPost(String(req.body.url ?? ''));
-      res.json({ ...p, description: postDescription(p) });
+      p = await fetchLinkedInPost(String(req.body.url ?? ''));
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept && !p?.text) p = overlay(parsePostPage(kept.html), p);
+    if (p && tab.text && !p.text) p.text = tab.text;
+    if (p && tab.author && !p.author) p.author = tab.author;
+    if (p && tab.author_url) p.author_url = tab.author_url;
+    if (!p?.text && !tab.text) return res.status(422).json({ error: error?.message ?? 'No post text found.' });
+    p ??= { text: tab.text ?? null, author: tab.author ?? null, author_url: tab.author_url ?? null, posted_at: null };
+    const companies = db.prepare('SELECT id, name, linkedin FROM companies').all() as { id: number; name: string; linkedin: string | null }[];
+    const company_guess = guessPostCompany({ ...p, headline: tab.headline ?? null }, companies);
+    res.json({ ...p, author_headline: tab.headline ?? null, description: postDescription(p), company_guess });
   }),
 );
 
@@ -499,6 +663,9 @@ function saveReferrers(jobId: number | bigint, ids: number[]) {
   db.prepare('DELETE FROM job_referrers WHERE job_id = ?').run(jobId);
   const insert = db.prepare('INSERT INTO job_referrers (job_id, contact_id, slot) VALUES (?, ?, ?)');
   ids.forEach((id, i) => insert.run(jobId, id, i + 1));
+  // Someone who referred you is "Referred", unless you already set where you stand with them.
+  if (ids.length)
+    db.prepare(`UPDATE contacts SET status = 'referred' WHERE status IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 }
 
 const referrersOf = (jobId: number | string) =>
@@ -552,6 +719,9 @@ app.get('/api/jobs/:id', (req, res) => {
 app.post('/api/jobs', (req, res) => {
   const j = normalizeJob(req.body);
   if (!j.title) return res.status(400).json({ error: 'Title is required' });
+  // A company given by name only (an import for a company not in the list yet): use it or create it.
+  const companyName = String(req.body.company_name ?? '').trim();
+  if (!j.company_id && companyName) j.company_id = findOrCreateCompany(companyName);
   if (!j.company_id) return res.status(400).json({ error: 'Company is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });
@@ -689,7 +859,9 @@ app.delete('/api/jobs/:id', (req, res) => {
 
 // ---------- Contacts (LinkedIn connections and referrers) ----------
 
-const CONTACT_FIELDS = ['full_name', 'company', 'position', 'linkedin_url', 'email', 'connected_on'] as const;
+const CONTACT_STATUSES = ['message_sent', 'chatting', 'referred'] as const;
+
+const CONTACT_FIELDS = ['full_name', 'company', 'position', 'linkedin_url', 'email', 'connected_on', 'status'] as const;
 
 const contactSelect = `
   SELECT c.*, (SELECT COUNT(*) FROM job_referrers r WHERE r.contact_id = c.id) AS referral_count
@@ -703,20 +875,40 @@ function normalizeContact(body: Row) {
   }
   c.full_name = String(body.full_name ?? '').trim();
   if (typeof c.linkedin_url === 'string') c.linkedin_url = c.linkedin_url.replace(/\/+$/, '');
+  if (!CONTACT_STATUSES.includes(c.status as (typeof CONTACT_STATUSES)[number])) c.status = null;
   return c;
 }
 
-/** A LinkedIn profile link → name, company, position, place; plus the contact if you already have them. */
+/**
+ * A LinkedIn profile link → name, company, position, place; plus the contact if you already have them,
+ * and the company if it's in your list. With `page` (from the extension) your logged-in tab's top card is used too.
+ */
 app.post(
   '/api/linkedin/profile',
   wrap(async (req, res) => {
+    const url = String(req.body.url ?? '');
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    const tab = kept ? cleanTab<TabProfile>(kept.data) : {};
+    let p: LinkedInProfile | null = null;
+    let error: Error | null = null;
     try {
-      const p = await fetchLinkedInProfile(String(req.body.url ?? ''));
-      const existing = db.prepare('SELECT id, full_name FROM contacts WHERE lower(linkedin_url) = ?').get(p.linkedin_url) ?? null;
-      res.json({ ...p, existing });
+      p = await fetchLinkedInProfile(url);
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept) {
+      const canonical = canonicalProfileUrl(kept.url) ?? canonicalProfileUrl(url) ?? url;
+      const fromHtml = parseProfilePage(kept.html, canonical);
+      // A headline "Talent Acquisition Lead at Delta" is the position at the company: keep just the position.
+      const position = tab.headline && tab.company ? tab.headline.replace(new RegExp(`\\s+(at|@)\\s+${escapeRe(tab.company)}\\b.*$`, 'i'), '') : tab.headline;
+      p = overlay(overlay(fromHtml, { full_name: tab.name, company: tab.company, position, location: tab.location }), p);
+      p.linkedin_url = canonical;
+    }
+    if (!p?.full_name) return res.status(422).json({ error: error?.message ?? 'No name found on that profile.' });
+    const existing = db.prepare('SELECT id, full_name FROM contacts WHERE lower(linkedin_url) = ?').get(p.linkedin_url.toLowerCase()) ?? null;
+    const companies = db.prepare('SELECT id, name FROM companies').all() as { id: number; name: string }[];
+    const company_match = p.company ? (companies.find((c) => sameCompany(c.name, p!.company)) ?? null) : null;
+    res.json({ ...p, company_linkedin: canonicalCompanyUrl(tab.company_url ?? '') ?? null, existing, company_match });
   }),
 );
 
@@ -808,6 +1000,24 @@ app.post('/api/contacts/import-messages', (req, res) => {
     return { people: stats.size, matched, not_connections: stats.size - used.size };
   })();
   res.json(result);
+});
+
+
+/** Where you stand with a person ({ status: 'chatting' | … | null }) and/or the favourite star ({ favorite: bool }). */
+app.patch('/api/contacts/:id', (req, res) => {
+  const sets: string[] = [];
+  const params: Row = { id: req.params.id };
+  if ('status' in req.body) {
+    const st = req.body.status || null;
+    if (st !== null && !CONTACT_STATUSES.includes(st)) return res.status(400).json({ error: 'Unknown status' });
+    sets.push('status = @status');
+    params.status = st;
+  }
+  if ('favorite' in req.body) (sets.push('favorite = @favorite'), (params.favorite = req.body.favorite ? 1 : 0));
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
+  const info = db.prepare(`UPDATE contacts SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  if (!info.changes) return res.status(404).json({ error: 'Contact not found' });
+  res.json(db.prepare(`${contactSelect} WHERE c.id = ?`).get(req.params.id));
 });
 
 /** Mark or unmark "I talked to this person". */
@@ -1439,6 +1649,7 @@ app.get('/api/export', (_req, res) => {
     exported_at: new Date().toISOString(),
     stages: db.prepare('SELECT * FROM stages ORDER BY sort_order').all(),
     companies: db.prepare('SELECT * FROM companies ORDER BY id').all(),
+    company_locations: db.prepare('SELECT * FROM company_locations ORDER BY id').all(),
     cvs: (db.prepare('SELECT * FROM cvs ORDER BY id').all() as Row[]).map((cv) => ({ ...cv, data: (cv.data as Buffer).toString('base64') })),
     jobs: db.prepare('SELECT * FROM jobs ORDER BY id').all(),
     stage_history: db.prepare('SELECT * FROM stage_history ORDER BY id').all(),
@@ -1467,8 +1678,9 @@ app.post(
   '/api/import',
   wrap(async (req, res) => {
     const {
-      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
+      mode = 'merge', stages = [], companies = [], company_locations, jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
     } = req.body as {
+      company_locations?: Row[];
       contacts?: Row[];
       job_referrers?: Row[];
       company_logos?: Row[];
@@ -1486,7 +1698,7 @@ app.post(
 
     if (mode === 'replace') {
       db.transaction(() => {
-        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
+        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_locations; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
         const insertAll = (table: string, rows: Row[]) => {
           for (const r of rows) {
             const keys = Object.keys(r);
@@ -1495,6 +1707,9 @@ app.post(
         };
         insertAll('stages', stages);
         insertAll('companies', companies);
+        // A backup from before locations existed: each company's own address becomes its location.
+        if (Array.isArray(company_locations)) insertAll('company_locations', company_locations);
+        else backfillLocations();
         insertAll('cvs', cvs.map((cv) => ({ ...cv, data: Buffer.from(String(cv.data ?? ''), 'base64') })));
         insertAll('jobs', jobs);
         insertAll('stage_history', stage_history);
@@ -1527,12 +1742,19 @@ app.post(
       let addedCompanies = 0;
       const cols = COMPANY_FIELDS.join(', ');
       const params = COMPANY_FIELDS.map((f) => '@' + f).join(', ');
-      for (const c of prepared) {
-        if (!c.name || byName.has(String(c.name).toLowerCase())) continue;
+      const newIds: number[] = [];
+      prepared.forEach((c, i) => {
+        if (!c.name || byName.has(String(c.name).toLowerCase())) return;
         const info = db.prepare(`INSERT INTO companies (${cols}) VALUES (${params})`).run(c);
-        byName.set(String(c.name).toLowerCase(), Number(info.lastInsertRowid));
+        const id = Number(info.lastInsertRowid);
+        byName.set(String(c.name).toLowerCase(), id);
+        newIds.push(id);
+        // Its offices: a "locations" list in the file, else its own address.
+        const locs = (companies[i] as Row).locations;
+        if (Array.isArray(locs) && locs.length) replaceLocations(id, locs as LocationInput[]);
+        else primaryFromCompany(id);
         addedCompanies++;
-      }
+      });
 
       let addedJobs = 0;
       const skipped: string[] = [];
@@ -1570,6 +1792,7 @@ app.post(
     })();
 
     queueLogos(missingLogoIds());
+    queueGeocoding();
     res.json(result);
   }),
 );
@@ -1597,6 +1820,12 @@ for (const { id } of db
   )
   .all() as { id: number }[])
   queueDescriptionFill(id);
+
+// A brand-new install starts with the starter companies (their logos that weren't bundled are fetched after).
+if (loadDefaultsOnFirstRun().length) queueLogos(missingLogoIds());
+
+// Offices with an address but no pin yet (from a LinkedIn import that was interrupted, say).
+queueGeocoding();
 
 // Ghost stale applications now; check open applications' LinkedIn postings a minute after start; both twice a day.
 ghostStaleApplications();

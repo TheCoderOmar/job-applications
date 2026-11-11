@@ -1,4 +1,5 @@
 // Reads a public LinkedIn company page (no login) and company logos.
+import { parseLocationsFromHtml, type ParsedLocation } from './locations.js';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 
@@ -12,6 +13,8 @@ export interface LinkedInCompany {
   headquarters: string | null;
   founded: string | null;
   logo_url: string | null;
+  /** Offices listed on the page ("Locations"), primary first. */
+  locations: ParsedLocation[];
 }
 
 /** "linkedin.com/company/acme/about/?x" or "eg.linkedin.com/company/acme" → "https://www.linkedin.com/company/acme". */
@@ -92,6 +95,7 @@ export function parseCompanyPage(html: string, linkedin: string): LinkedInCompan
     headquarters: about(html, 'headquarters')?.text || null,
     founded: about(html, 'foundedOn')?.text || null,
     logo_url: meta(html, 'og:image'),
+    locations: parseLocationsFromHtml(html),
   };
 }
 
@@ -264,6 +268,8 @@ export const isLinkedInPost = (url: string | null | undefined) =>
 export interface LinkedInPost {
   text: string | null;
   author: string | null;
+  /** The author's page: a company page (linkedin.com/company/…) or a person (linkedin.com/in/…). */
+  author_url: string | null;
   posted_at: string | null;
 }
 
@@ -280,9 +286,11 @@ export function parsePostPage(html: string): LinkedInPost {
   }
   const p = post as Record<string, any> | null; // eslint-disable-line @typescript-eslint/no-explicit-any
   const body = p?.articleBody ?? p?.text ?? meta(html, 'og:description');
+  const author = Array.isArray(p?.author) ? p.author[0] : p?.author;
   return {
     text: body ? decode(String(body)).replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || null : null,
-    author: clean(p?.author?.name ?? (Array.isArray(p?.author) ? p.author[0]?.name : null)),
+    author: clean(author?.name),
+    author_url: typeof author?.url === 'string' ? author.url : null,
     posted_at: p?.datePublished ?? null,
   };
 }

@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import type { Contact } from '../types';
+import { CONTACT_STATUS, type Contact, type ContactStatus } from '../types';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
-import { TalkedStatus, hasTalked } from '../components/Contacts';
+import { ContactStatusSelect, TalkedStatus, hasTalked } from '../components/Contacts';
+import StarButton from '../components/Star';
+import { createCompanyFromLinkedIn } from '../companyImport';
 import { unzipSync, strFromU8 } from 'fflate';
 
 export default function Contacts() {
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [q, setQ] = useState('');
   const [talkedOnly, setTalkedOnly] = useState(false);
+  // Tab (All / Favourites, kept in ?tab=) and status filter ('' = any, 'none' = no status yet).
+  const [tab, setTab] = useState<'all' | 'favorites'>(() =>
+    new URLSearchParams(location.search).get('tab') === 'favorites' ? 'favorites' : 'all',
+  );
+  const [statusFilter, setStatusFilter] = useState<'' | 'none' | ContactStatus>('');
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -26,10 +33,32 @@ export default function Contacts() {
     return (contacts ?? []).filter(
       (c) =>
         (!talkedOnly || hasTalked(c)) &&
+        (tab === 'all' || !!c.favorite) &&
+        (!statusFilter || (statusFilter === 'none' ? !c.status : c.status === statusFilter)) &&
         (!needle || [c.full_name, c.company, c.position].some((v) => v?.toLowerCase().includes(needle))),
     );
-  }, [contacts, q, talkedOnly]);
+  }, [contacts, q, talkedOnly, tab, statusFilter]);
   const talkedCount = contacts?.filter(hasTalked).length ?? 0;
+  const favoriteCount = contacts?.filter((c) => c.favorite).length ?? 0;
+  const replace = (u: Contact) => setContacts((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)));
+
+  function switchTab(t: 'all' | 'favorites') {
+    setTab(t);
+    const url = new URL(location.href);
+    if (t === 'favorites') url.searchParams.set('tab', 'favorites');
+    else url.searchParams.delete('tab');
+    history.replaceState(history.state, '', url);
+  }
+
+  async function toggleFavorite(c: Contact) {
+    replace({ ...c, favorite: c.favorite ? 0 : 1 });
+    try {
+      replace(await api.patchContact(c.id, { favorite: !c.favorite }));
+    } catch (e) {
+      replace(c);
+      setMessage({ text: `Couldn't save the star: ${(e as Error).message}`, error: true });
+    }
+  }
 
   /**
    * Takes LinkedIn's export .zip (or Connections.csv / messages.csv picked directly).
@@ -139,6 +168,34 @@ export default function Contacts() {
       </details>
 
       {contacts && contacts.length > 0 && (
+        <div role="tablist" aria-label="Contacts" className="flex gap-1 border-b border-line">
+          {(
+            [
+              ['all', `All (${contacts.length})`],
+              ['favorites', `Favourites (${favoriteCount})`],
+            ] as const
+          ).map(([t, label]) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => switchTab(t)}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
+                tab === t ? 'border-brand text-fg' : 'border-transparent text-muted hover:text-fg'
+              }`}
+            >
+              {t === 'favorites' && (
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-300" fill="currentColor" aria-hidden>
+                  <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9l-5.25 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z" />
+                </svg>
+              )}
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {contacts && contacts.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] max-w-md flex-1">
             <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -151,6 +208,20 @@ export default function Contacts() {
           >
             Talked to ({talkedCount})
           </button>
+          <select
+            aria-label="Filter by status"
+            className="input w-auto py-1.5 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          >
+            <option value="">Any status</option>
+            {(Object.keys(CONTACT_STATUS) as ContactStatus[]).map((k) => (
+              <option key={k} value={k}>
+                {CONTACT_STATUS[k].label} ({contacts.filter((c) => c.status === k).length})
+              </option>
+            ))}
+            <option value="none">No status</option>
+          </select>
           <span className="text-sm text-muted">{shown.length} shown</span>
         </div>
       )}
@@ -164,9 +235,11 @@ export default function Contacts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
+                <th className="w-8 py-3 pl-3" aria-label="Favourite" />
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Company</th>
                 <th className="hidden px-4 py-3 font-medium md:table-cell">Position</th>
+                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Talked</th>
                 <th className="px-4 py-3 font-medium">Referrals</th>
                 <th className="px-4 py-3" />
@@ -175,6 +248,14 @@ export default function Contacts() {
             <tbody className="divide-y divide-line">
               {shown.slice(0, 500).map((c) => (
                 <tr key={c.id} className="transition hover:bg-raised/60">
+                  <td className="py-2.5 pl-3">
+                    <StarButton
+                      starred={!!c.favorite}
+                      onToggle={() => toggleFavorite(c)}
+                      label={`Add ${c.full_name} to favourites`}
+                      onLabel="Favourite"
+                    />
+                  </td>
                   <td className="px-4 py-2.5 font-medium">
                     {c.linkedin_url ? (
                       <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-brand-light">
@@ -187,7 +268,10 @@ export default function Contacts() {
                   <td className="px-4 py-2.5 text-muted">{c.company ?? '—'}</td>
                   <td className="hidden px-4 py-2.5 text-muted md:table-cell">{c.position ?? '—'}</td>
                   <td className="whitespace-nowrap px-4 py-2.5">
-                    <TalkedStatus c={c} onChange={(u) => setContacts((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)))} />
+                    <ContactStatusSelect c={c} onChange={replace} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    <TalkedStatus c={c} onChange={replace} />
                   </td>
                   <td className="px-4 py-2.5 tabular-nums">
                     {c.referral_count ? (
@@ -211,7 +295,11 @@ export default function Contacts() {
             </tbody>
           </table>
           {shown.length > 500 && <p className="px-4 py-3 text-xs text-muted">Showing 500 of {shown.length}. Search to narrow down.</p>}
-          {shown.length === 0 && <p className="px-4 py-6 text-center text-muted">No one matches.</p>}
+          {shown.length === 0 && (
+            <p className="px-4 py-6 text-center text-muted">
+              {tab === 'favorites' && !favoriteCount ? 'No favourites yet. Click the star next to a name to add one.' : 'No one matches.'}
+            </p>
+          )}
         </div>
       )}
 
@@ -231,22 +319,44 @@ export default function Contacts() {
   );
 }
 
-function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>; onSaved: () => void; onCancel: () => void }) {
+const normName = (n: string) => n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '');
+
+/**
+ * Add or edit a person. `autoImportPage` (from the browser extension's window): read their LinkedIn profile as soon as
+ * the form opens, using the page the extension sent (null = read the public profile only).
+ */
+export function ContactForm({
+  initial,
+  onSaved,
+  onCancel,
+  autoImportPage,
+}: {
+  initial: Partial<Contact>;
+  onSaved: (c: Contact) => void;
+  onCancel: () => void;
+  autoImportPage?: string | null;
+}) {
   const [d, setD] = useState<Partial<Contact>>(initial);
   const [error, setError] = useState('');
-  const [companies, setCompanies] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<string[] | null>(null);
   const [li, setLi] = useState<{ text: string; error?: boolean; existing?: { id: number; full_name: string } | null } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Their company's LinkedIn page (from the profile), used when the company is added too.
+  const [companyLink, setCompanyLink] = useState<string | null>(null);
+  const [addCompany, setAddCompany] = useState(false);
 
-  /** Fill the form from a public LinkedIn profile. The company is matched to your list when it's there. */
-  async function importProfile() {
+  /** Fill the form from a LinkedIn profile. The company is matched to your list when it's there. */
+  async function importProfile(page?: string) {
     if (!d.linkedin_url?.trim()) return;
     setImporting(true);
     setLi({ text: 'Reading the profile from LinkedIn…' });
     try {
-      const p = await api.linkedInProfile(d.linkedin_url);
-      const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '');
-      const company = p.company ? (companies.find((c) => norm(c) === norm(p.company!)) ?? p.company) : null;
+      const p = await api.linkedInProfile(d.linkedin_url, page);
+      const company = p.company_match?.name ?? (p.company ? ((companies ?? []).find((c) => normName(c) === normName(p.company!)) ?? p.company) : null);
+      setCompanyLink(p.company_linkedin);
+      // A company you don't have yet is added with the person, unless you untick it.
+      setAddCompany(!!company && !p.company_match && !(companies ?? []).some((c) => normName(c) === normName(company)));
       const filled: string[] = [];
       const next = { ...d, linkedin_url: p.linkedin_url };
       if (p.full_name) (next.full_name = p.full_name), filled.push('name');
@@ -271,16 +381,36 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
   useEffect(() => {
     api.companies().then((cs) => setCompanies(cs.map((c) => c.name)));
   }, []);
+  // From the extension: import once the company list is here (to match their company).
+  const autoImported = useRef(false);
+  useEffect(() => {
+    if (autoImportPage === undefined || autoImported.current || companies === null) return;
+    autoImported.current = true;
+    importProfile(autoImportPage ?? undefined);
+  }, [companies]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: keyof Contact, v: string) => setD((p) => ({ ...p, [k]: v }));
+  const typedCompany = d.company?.trim() ?? '';
+  const newCompany = !!typedCompany && companies !== null && !companies.some((c) => normName(c) === normName(typedCompany));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
+    setError('');
     try {
-      if (initial.id) await api.updateContact(initial.id, d);
-      else await api.createContact(d);
-      onSaved();
+      const saved = initial.id ? await api.updateContact(initial.id, d) : await api.createContact(d);
+      if (newCompany && addCompany) {
+        try {
+          await createCompanyFromLinkedIn(typedCompany, companyLink);
+        } catch (err) {
+          setError(`Saved ${saved.full_name}, but the company wasn't added: ${(err as Error).message}`);
+          return;
+        }
+      }
+      onSaved(saved);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -312,7 +442,7 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
           <button
             type="button"
             className="btn-ghost shrink-0"
-            onClick={importProfile}
+            onClick={() => importProfile()}
             disabled={importing || !/linkedin\.com\/in\//i.test(d.linkedin_url ?? '')}
           >
             <Icon name="linkedin" /> {importing ? 'Importing…' : 'Import from LinkedIn'}
@@ -335,20 +465,39 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
             onChange={(e) => set('company', e.target.value)}
           />
           <datalist id="contact-companies">
-            {companies.map((n) => (
+            {(companies ?? []).map((n) => (
               <option key={n} value={n} />
             ))}
           </datalist>
+          {newCompany && (
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-muted">
+              <input type="checkbox" className="accent-[#3b82f6]" checked={addCompany} onChange={(e) => setAddCompany(e.target.checked)} />
+              Also add {typedCompany} to my companies{companyLink ? ' (from its LinkedIn page)' : ''}
+            </label>
+          )}
         </div>
         {field('position', 'Position')}
         {field('email', 'Email', { type: 'email' })}
+        <div>
+          <label className="label">Status</label>
+          <select className="input" value={d.status ?? ''} onChange={(e) => setD((p) => ({ ...p, status: (e.target.value || null) as ContactStatus | null }))}>
+            <option value="">No status</option>
+            {(Object.keys(CONTACT_STATUS) as ContactStatus[]).map((k) => (
+              <option key={k} value={k}>
+                {CONTACT_STATUS[k].label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" className="btn-ghost" onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn-primary">{initial.id ? 'Save changes' : 'Add person'}</button>
+        <button className="btn-primary" disabled={saving || importing}>
+          {saving ? 'Saving…' : initial.id ? 'Save changes' : 'Add person'}
+        </button>
       </div>
     </form>
   );

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import type { Company, LinkedInCompany } from '../types';
 import Icon from './Icon';
+import LocationsEditor, { emptyLocation, fromDraft, mergeFound, toDraft, type LocationRowDraft } from './LocationsEditor';
 
 interface Props {
   initial?: Company;
@@ -10,16 +11,18 @@ interface Props {
   onCancel: () => void;
 }
 
-type Draft = Omit<Partial<Company>, 'lat' | 'lng'> & { lat?: string; lng?: string };
+type Draft = Omit<Partial<Company>, 'lat' | 'lng' | 'locations' | 'address' | 'city' | 'country' | 'maps_link'>;
 
 export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
-  const [d, setD] = useState<Draft>({
-    ...initial,
-    lat: initial?.lat?.toString() ?? '',
-    lng: initial?.lng?.toString() ?? '',
+  const [d, setD] = useState<Draft>(() => {
+    const { lat: _a, lng: _b, locations: _l, address: _c, city: _d, country: _e, maps_link: _f, ...rest } = initial ?? ({} as Company);
+    return rest;
   });
+  // The company's offices; a new company starts with one empty row.
+  const [locations, setLocations] = useState<LocationRowDraft[]>(() =>
+    initial?.locations?.length ? initial.locations.map(toDraft) : initial ? [] : [emptyLocation(true)],
+  );
   const [error, setError] = useState('');
-  const [linkStatus, setLinkStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [liStatus, setLiStatus] = useState<{ text: string; error?: boolean; existing?: LinkedInCompany['existing'] } | null>(null);
   const [liLoading, setLiLoading] = useState(false);
@@ -27,17 +30,6 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((prev) => ({ ...prev, [k]: v }));
 
-  async function readLink() {
-    if (!d.maps_link) return;
-    setLinkStatus('Reading link…');
-    try {
-      const r = await api.resolveMapsLink(d.maps_link);
-      setD((prev) => ({ ...prev, lat: r.lat.toFixed(6), lng: r.lng.toFixed(6) }));
-      setLinkStatus(`Found ${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`);
-    } catch (e) {
-      setLinkStatus((e as Error).message + ' Enter latitude/longitude manually.');
-    }
-  }
 
   /** Fills the form from the public LinkedIn page. Fields you already typed are kept. */
   async function fillFromLinkedIn() {
@@ -48,6 +40,15 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
       const li = await api.linkedInCompany(d.linkedin);
       const [city, country] = splitPlace(li.headquarters);
       const filled: string[] = [];
+      // Offices listed on the page; without any, the headquarters city fills an empty first location.
+      const [merged, added] = mergeFound(
+        locations,
+        li.locations.length ? li.locations : city ? [{ label: null, address: null, city, country, is_primary: true }] : [],
+      );
+      if (added) {
+        setLocations(merged);
+        filled.push(li.locations.length ? `${added} location${added === 1 ? '' : 's'}` : 'city and country');
+      }
       setD((prev) => {
         const next = { ...prev, linkedin: li.linkedin };
         const fill = (k: keyof Draft, v: string | null, label: string) => {
@@ -63,10 +64,6 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
         fill('founded', li.founded, 'founded');
         fill('headquarters', li.headquarters, 'headquarters');
         fill('description', li.description, 'about');
-        if (!prev.lat && !prev.address) {
-          fill('city', city, 'city');
-          fill('country', country, 'country');
-        }
         return next;
       });
       setLogoUrl(li.logo_url);
@@ -90,11 +87,9 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
     e.preventDefault();
     setSaving(true);
     setError('');
-    const payload = { ...d, lat: d.lat === '' ? null : Number(d.lat), lng: d.lng === '' ? null : Number(d.lng) };
+    const payload = { ...d, locations: locations.map(fromDraft) };
     try {
-      const saved = initial
-        ? await api.updateCompany(initial.id, payload as Partial<Company>)
-        : await api.createCompany(payload as Partial<Company>);
+      const saved = initial ? await api.updateCompany(initial.id, payload) : await api.createCompany(payload);
       onSaved(saved);
     } catch (err) {
       setError((err as Error).message);
@@ -132,7 +127,7 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
         <div className="mt-2 flex items-center gap-3">
           {logoUrl && <img src={logoUrl} alt="" className="h-9 w-9 rounded-md bg-white object-contain p-0.5" />}
           <p className={`text-xs ${liStatus?.error ? 'text-red-400' : 'text-muted'}`}>
-            {liStatus?.text ?? 'Paste the link to fill in the name, website, industry, size, headquarters and logo.'}
+            {liStatus?.text ?? 'Paste the link to fill in the name, website, industry, size, headquarters, locations and logo.'}
             {liStatus?.existing && (
               <>
                 {' '}
@@ -209,47 +204,7 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
         </label>
       </div>
 
-      <fieldset className="space-y-4 rounded-lg border border-line p-4">
-        <legend className="px-1 text-xs font-medium uppercase tracking-wide text-brand-light">Location</legend>
-        <div>
-          <label className="label">Google Maps link</label>
-          <div className="flex gap-2">
-            <input
-              className="input"
-              placeholder="https://maps.app.goo.gl/… or https://www.google.com/maps/…"
-              value={d.maps_link ?? ''}
-              onChange={(e) => set('maps_link', e.target.value)}
-              onBlur={() => d.maps_link && !d.lat && readLink()}
-            />
-            <button type="button" className="btn-ghost shrink-0" onClick={readLink} disabled={!d.maps_link}>
-              Read link
-            </button>
-          </div>
-          {linkStatus && <p className="mt-1.5 text-xs text-muted">{linkStatus}</p>}
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label">Latitude</label>
-            <input className="input" inputMode="decimal" value={d.lat ?? ''} onChange={(e) => set('lat', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Longitude</label>
-            <input className="input" inputMode="decimal" value={d.lng ?? ''} onChange={(e) => set('lng', e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="label">Address</label>
-            <input className="input" value={d.address ?? ''} onChange={(e) => set('address', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">City</label>
-            <input className="input" value={d.city ?? ''} onChange={(e) => set('city', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Country</label>
-            <input className="input" value={d.country ?? ''} onChange={(e) => set('country', e.target.value)} />
-          </div>
-        </div>
-      </fieldset>
+      <LocationsEditor value={locations} onChange={setLocations} />
 
       <div>
         <label className="label">About</label>

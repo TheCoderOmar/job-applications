@@ -43,6 +43,7 @@ test('parseCompanyPage reads name, about list, website and logo', () => {
     headquarters: 'Cairo, Egypt',
     founded: '1999',
     logo_url: 'https://media.licdn.com/logo.png?e=1&v=beta',
+    locations: [],
   });
 });
 
@@ -95,6 +96,7 @@ test('isLinkedInPost and parsePostPage', async () => {
   assert.deepEqual(parsePostPage(html), {
     text: 'Hiring a WSO2 engineer & more\nSend CV to hr@acme.com',
     author: 'Sara Hassan',
+    author_url: null,
     posted_at: '2026-10-01T10:00:00Z',
   });
 });

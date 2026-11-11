@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, useRef } from 'react';
 import { api } from '../api';
-import { CHANNEL_LABELS, type ApplyChannel, type Company, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
+import { CHANNEL_LABELS, type ApplyChannel, type Company, type CompanyInput, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
 import { Link } from 'react-router-dom';
 import { ReferrerPicker } from './Contacts';
 import StepsEditor from './Steps';
@@ -45,7 +45,12 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   const [newCompany, setNewCompany] = useState<{ name: string; linkedin: string | null } | null>(null);
   async function createNewCompany(): Promise<number> {
     const nc = newCompany!;
-    let details: Partial<Company> = {};
+    const name = nc.name.trim();
+    if (!name) throw new Error('Type the company name, or pick one from the list.');
+    // Typed a company you already have: use it rather than making a copy.
+    const known = companies.find((c) => sameName(c.name, name));
+    if (known) return known.id;
+    let details: CompanyInput = {};
     if (nc.linkedin) {
       try {
         const li = await api.linkedInCompany(nc.linkedin);
@@ -56,22 +61,27 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         details = { linkedin: nc.linkedin };
       }
     }
-    const c = await api.createCompany({ ...details, name: nc.name });
+    const c = await api.createCompany({ ...details, name });
     setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
     setNewCompany(null);
     return c.id;
   }
 
-  /** A recruiter's LinkedIn post → the job description (who posted it, then the post). */
-  async function fillFromLinkedInPost(link: string, replace = false) {
+  /**
+   * A recruiter's LinkedIn post → the job description (who posted it, then the post), and the company it's
+   * probably for: the company page that posted it, one of yours it names, or the employer in the author's headline.
+   */
+  async function fillFromLinkedInPost(link: string, replace = false, page?: string) {
     setImporting(true);
     setLiStatus({ text: 'Reading the post from LinkedIn…' });
     try {
-      const p = await api.linkedInPost(link);
+      const p = await api.linkedInPost(link, page);
       // What will change, judged on the form now; applied to the latest state so nothing typed meanwhile is lost.
       const filled: string[] = [];
       if (replace || !d.description?.trim()) filled.push('description');
       if (d.apply_channel !== 'linkedin') filled.push('applied via LinkedIn');
+      const guess = !isEdit && !(initial?.company_id) && (replace || !d.company_id) ? p.company_guess : null;
+      if (guess) filled.push(guess.id ? 'company' : 'company (new)');
       setD((prev) => {
         const next = { ...prev };
         if (replace || !prev.description?.trim()) next.description = p.description;
@@ -79,9 +89,22 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         // Keep the post in the "LinkedIn post link" field, not as the job posting link.
         if (!next.apply_contact?.trim() || next.apply_contact === link) next.apply_contact = link;
         if (next.url === link) next.url = '';
+        if (guess) next.company_id = guess.id ?? NEW_COMPANY;
         return next;
       });
-      setLiStatus({ text: filled.length ? `Imported the post into the ${filled.join(' and ')}.` : 'Already filled in; nothing changed.' });
+      if (guess && !guess.id) setNewCompany({ name: guess.name, linkedin: guess.linkedin });
+      const why = guess
+        ? guess.why === 'author'
+          ? ` ${guess.name} posted it.`
+          : guess.why === 'mentioned'
+            ? ` The post mentions ${guess.name}; change the company if that's wrong.`
+            : ` ${guess.name} is from the author's headline; change it if that's wrong.`
+        : !isEdit && !d.company_id
+          ? ' Pick or type the company.'
+          : '';
+      setLiStatus({
+        text: (filled.length ? `Imported the post into the ${filled.join(', ')}.` : 'Already filled in; nothing changed.') + why,
+      });
     } catch (e) {
       setLiStatus({ text: (e as Error).message, error: true });
     } finally {
@@ -95,7 +118,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
    * A posting that's "no longer accepting applications" moves an applied job to Ghosted.
    */
   async function fillFromLinkedInJob(link: string | null | undefined, replace = false, page?: string) {
-    if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace);
+    if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace, page ?? (link === autoImport ? autoImportPage : undefined));
     if (!link || !isImportableJob(link)) return;
     const site = siteName(link);
     setImporting(true);
@@ -160,7 +183,8 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   // From the browser extension: once companies and stages are loaded (so the company can be matched), import once.
   const autoImported = useRef(false);
   useEffect(() => {
-    if (!autoImport || autoImported.current || !companies.length || !stages.length) return;
+    // Companies arrive with the stages, so an empty company list (a fresh install) still imports.
+    if (!autoImport || autoImported.current || !stages.length) return;
     autoImported.current = true;
     if (isImportableJob(autoImport) || isLinkedInPost(autoImport)) fillFromLinkedInJob(autoImport, true, autoImportPage);
   }, [autoImport, companies, stages]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,7 +196,8 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       setCvs(cv);
       setD((prev) => ({
         ...prev,
-        company_id: prev.company_id ?? c[0]?.id,
+        // No silent default: an imported company is matched below, otherwise you pick or type one.
+        company_id: prev.company_id,
         stage_id: prev.stage_id ?? s[0]?.id,
         // New applications start on the default CV; a saved one keeps what it has, even none.
         cv_id: initial?.id ? prev.cv_id : (prev.cv_id ?? cv.find((x) => x.is_default)?.id ?? null),
@@ -222,17 +247,6 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     }
   }
 
-  if (companies.length === 0 && stages.length > 0) {
-    return (
-      <div className="space-y-4 text-sm text-muted">
-        <p>Add a company first, then you can add jobs to it.</p>
-        <button className="btn-ghost" onClick={onCancel}>
-          Close
-        </button>
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="rounded-lg border border-brand/30 bg-brand/5 p-4">
@@ -268,17 +282,35 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
           <label className="label">Company *</label>
           <select
             className="input"
+            required
             value={d.company_id ?? ''}
-            onChange={(e) => set('company_id', Number(e.target.value))}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              if (id === NEW_COMPANY && !newCompany) setNewCompany({ name: '', linkedin: null });
+              set('company_id', e.target.value ? id : null);
+            }}
             disabled={!!initial?.company_id && !isEdit}
           >
-            {newCompany && <option value={NEW_COMPANY}>{newCompany.name} (new)</option>}
+            <option value="" disabled>
+              Pick a company…
+            </option>
+            {!isEdit && <option value={NEW_COMPANY}>{newCompany?.name.trim() ? `${newCompany.name.trim()} (new)` : '+ New company…'}</option>}
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          {d.company_id === NEW_COMPANY && newCompany && (
+            <input
+              className="input mt-2"
+              required
+              placeholder="Company name"
+              aria-label="New company name"
+              value={newCompany.name}
+              onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })}
+            />
+          )}
         </div>
         <div>
           <label className="label">Stage</label>

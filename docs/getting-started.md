@@ -30,7 +30,7 @@ npm run dev
 
 Then open **http://localhost:5173**. Keep the terminal open: closing it stops the app.
 
-Your data goes into `data/jobs.db`, which is created on the first run. You start with **231 companies** already in (tech companies, banks and Egypt's biggest employers, plus the Gulf, with their offices and logos) and nothing else: your applications and contacts are yours alone.
+Your data goes into `data/jobs.db`, which is created on the first run. You start with **228 companies** already in (tech companies, banks and Egypt's biggest employers, plus the Gulf, with their offices and logos) and nothing else: your applications and contacts are yours alone.
 
 **Updates come by themselves:** when there's a new version on GitHub, a card in the corner says **Update available**. Click **Update now** and the app restarts with it. It checks when it starts and every 6 hours; **Settings → Check for updates** checks right away. (Use `git clone`, not the ZIP download, for this to work.)
 

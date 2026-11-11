@@ -13,7 +13,7 @@ Local job-application tracker: every company, job and stage, with LinkedIn impor
 3. Double-click **`setup.bat`** in the folder. It installs everything and puts a **Job Tracker** icon on your desktop.
 4. Open the app from that icon from now on. It starts the app if it isn't running and opens it in your browser.
 
-A new install starts with **231 companies** (tech companies, banks and Egypt's biggest employers, plus the Gulf, with their offices and logos). **Settings → Starter companies** adds back any you delete.
+A new install starts with **228 companies** (tech companies, banks and Egypt's biggest employers, plus the Gulf, with their offices and logos). **Settings → Starter companies** adds back any you delete.
 
 ## Run from a terminal
 

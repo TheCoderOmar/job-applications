@@ -4,6 +4,8 @@
 
 Local job-application tracker: every company, job and stage, with LinkedIn imports, contacts, a company map and a flow chart of where applications went.
 
+**New here?** Start with the [getting started guide](docs/getting-started.md): install, first company and application, browser extension, LinkedIn contacts and backups.
+
 ## Run
 
 ```bash

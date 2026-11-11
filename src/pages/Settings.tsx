@@ -218,6 +218,8 @@ export default function Settings() {
       </section>
 
       <HomeSection />
+      <MapSearchSection />
+      <StarterCompaniesSection />
 
       <section className="card p-5">
         <h2 className="font-semibold">Import & export</h2>
@@ -319,6 +321,117 @@ function HomeSection() {
           Current: {home.label} at {home.lat.toFixed(5)}, {home.lng.toFixed(5)}
         </p>
       )}
+    </section>
+  );
+}
+
+/** Optional Google Maps key: exact pins for company addresses. Without one, OpenStreetMap finds them (free, sometimes approximate). */
+function MapSearchSection() {
+  const [state, setState] = useState<{ set: boolean; hint: string | null } | null>(null);
+  const [key, setKey] = useState('');
+  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.googleKey().then(setState);
+  }, []);
+
+  async function save(value: string) {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await api.setGoogleKey(value);
+      setState(r);
+      setKey('');
+      setStatus({
+        text: r.set ? 'Saved. Addresses OpenStreetMap could not find are being looked up again with Google.' : 'Removed. OpenStreetMap is used again.',
+        ok: true,
+      });
+    } catch (err) {
+      setStatus({ text: (err as Error).message, ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card p-5">
+      <h2 className="font-semibold">Finding addresses on the map</h2>
+      <p className="mt-0.5 text-xs text-muted">
+        Company addresses are put on the map with OpenStreetMap: free, no setup, but some pins land on the street or district instead of the
+        building. A Google Maps API key (from Google Cloud, with the Geocoding API turned on) gives exact pins; Google's free monthly credit
+        covers personal use. You can always fix a pin by pasting a Google Maps link on the company.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          save(key);
+        }}
+        className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]"
+      >
+        <input
+          className="input"
+          type="password"
+          autoComplete="off"
+          placeholder={state?.set ? `Google key saved (${state.hint})` : 'Google Maps API key (optional)'}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button className="btn-primary" disabled={busy || !key.trim()}>
+          {busy ? 'Saving…' : 'Save key'}
+        </button>
+        {state?.set && (
+          <button type="button" className="btn-ghost" disabled={busy} onClick={() => save('')}>
+            Remove key
+          </button>
+        )}
+      </form>
+      {status && <p className={`mt-2 text-xs ${status.ok ? 'text-emerald-300' : 'text-red-300'}`}>{status.text}</p>}
+      {!status && (
+        <p className="mt-2 text-xs text-muted">{state?.set ? `Using Google (key ${state.hint}).` : 'Using OpenStreetMap.'}</p>
+      )}
+    </section>
+  );
+}
+
+/** The companies the app ships with: add back any you don't have (same name = skipped). */
+function StarterCompaniesSection() {
+  const [info, setInfo] = useState<{ total: number; missing: number } | null>(null);
+  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.defaultCompanies().then(setInfo);
+  }, []);
+
+  async function load() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await api.loadDefaultCompanies();
+      setInfo((i) => i && { ...i, missing: 0 });
+      setStatus({ text: r.added ? `Added ${r.added} companies.` : 'You already have all of them.', ok: true });
+    } catch (err) {
+      setStatus({ text: (err as Error).message, ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!info?.total) return null;
+  return (
+    <section className="card p-5">
+      <h2 className="font-semibold">Starter companies</h2>
+      <p className="mt-0.5 text-xs text-muted">
+        The app comes with {info.total} tech companies and banks in Egypt and the Gulf, with their locations and logos. A new install starts with
+        them; add back any you deleted here. Companies you already have (same name) are skipped.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button className="btn-ghost" onClick={load} disabled={busy || info.missing === 0}>
+          <Icon name="building" /> {busy ? 'Adding…' : info.missing ? `Add ${info.missing} starter companies` : 'All starter companies added'}
+        </button>
+        {status && <span className={`text-xs ${status.ok ? 'text-emerald-300' : 'text-red-300'}`}>{status.text}</span>}
+      </div>
     </section>
   );
 }

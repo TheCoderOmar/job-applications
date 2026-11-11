@@ -22,6 +22,8 @@ export const api = {
   updateCompany: (id: number, data: CompanyInput) => request<Company>(`/api/companies/${id}`, json('PUT', data)),
   addLocations: (id: number, locations: FoundLocation[]) =>
     request<{ added: number; company: Company }>(`/api/companies/${id}/locations`, json('POST', { locations })),
+  defaultCompanies: () => request<{ total: number; missing: number }>('/api/default-companies'),
+  loadDefaultCompanies: () => request<{ added: number }>('/api/default-companies', { method: 'POST' }),
   geocodeStatus: () => request<{ running: boolean; pending: number; done: number; failed: number; error: string | null }>('/api/geocode/status'),
   googleKey: () => request<{ set: boolean; hint: string | null }>('/api/settings/google-key'),
   setGoogleKey: (key: string) => request<{ set: boolean; hint: string | null }>('/api/settings/google-key', json('PUT', { key })),

@@ -5,6 +5,7 @@ import {
   type LocationInput,
 } from './companyLocations.js';
 import { mapsSearchLink } from './geocode.js';
+import { loadDefaultCompanies, loadDefaultsOnFirstRun, readDefaults } from './defaults.js';
 import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
 import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
@@ -95,8 +96,10 @@ async function runLogoQueue() {
       | undefined;
     if (c) {
       const logo = await findLogo(c).catch(() => null);
+      // The company may have been deleted while its logo was being fetched: then there's nothing to save.
       db.prepare(
-        `INSERT INTO company_logos (company_id, data, mime, status, fetched_at) VALUES (?, ?, ?, ?, datetime('now'))
+        `INSERT INTO company_logos (company_id, data, mime, status, fetched_at)
+         SELECT ?1, ?2, ?3, ?4, datetime('now') WHERE EXISTS (SELECT 1 FROM companies WHERE id = ?1)
          ON CONFLICT(company_id) DO UPDATE SET data = excluded.data, mime = excluded.mime, status = excluded.status, fetched_at = excluded.fetched_at`,
       ).run(id, logo?.data ?? null, logo?.mime ?? null, logo ? 'found' : 'none');
       if (logo) logoState.found++;
@@ -244,6 +247,18 @@ app.post('/api/companies/:id/locations', (req, res) => {
   const found = (Array.isArray(req.body.locations) ? req.body.locations : []) as ParsedLocation[];
   const added = addLocations(req.params.id, found);
   res.json({ added, company: companyOut(req.params.id) });
+});
+
+/** The starter companies (seed/default-companies.json): how many there are, and adding the ones you don't have. */
+app.get('/api/default-companies', (_req, res) => {
+  const list = readDefaults();
+  const have = new Set((db.prepare('SELECT lower(name) AS n FROM companies').all() as { n: string }[]).map((r) => r.n));
+  res.json({ total: list.length, missing: list.filter((c) => !have.has(c.name.trim().toLowerCase())).length });
+});
+app.post('/api/default-companies', (_req, res) => {
+  const added = loadDefaultCompanies();
+  queueLogos(missingLogoIds());
+  res.json({ added: added.length });
 });
 
 /** Pinning progress, and a Google Maps search link for checking a location by hand. */
@@ -1770,6 +1785,9 @@ for (const { id } of db
   )
   .all() as { id: number }[])
   queueDescriptionFill(id);
+
+// A brand-new install starts with the starter companies (their logos that weren't bundled are fetched after).
+if (loadDefaultsOnFirstRun().length) queueLogos(missingLogoIds());
 
 // Offices with an address but no pin yet (from a LinkedIn import that was interrupted, say).
 queueGeocoding();

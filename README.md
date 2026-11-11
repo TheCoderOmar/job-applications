@@ -13,7 +13,7 @@ Local job-application tracker: every company, job and stage, with LinkedIn impor
 3. Double-click **`setup.bat`** in the folder. It installs everything and puts a **Job Tracker** icon on your desktop.
 4. Open the app from that icon from now on. It starts the app if it isn't running and opens it in your browser.
 
-A new install starts with **177 companies** (tech companies and banks in Egypt and the Gulf, with their offices and logos). **Settings → Starter companies** adds back any you delete.
+A new install starts with **231 companies** (tech companies, banks and Egypt's biggest employers, plus the Gulf, with their offices and logos). **Settings → Starter companies** adds back any you delete.
 
 ## Run from a terminal
 
@@ -28,7 +28,7 @@ Data is stored in `data/jobs.db` (SQLite). Back it up from **Settings → Export
 
 ## Updates
 
-The app checks GitHub when it starts and every few hours. When there's a new version, a card in the corner says **Update available** with what changed; **Update now** downloads it and the app restarts by itself. If an update brings new packages, it asks you to close the app and open it again from the desktop icon, which installs them first. (It only updates a copy installed with `git clone`, on the `main` branch, without your own code changes.)
+The app checks GitHub when it starts and every 6 hours; **Settings → Check for updates** checks right away and says when it last looked. When there's a new version, a card in the corner says **Update available** with what changed; **Update now** downloads it and the app restarts by itself. If an update brings new packages, it asks you to close the app and open it again from the desktop icon, which installs them first. (It only updates a copy installed with `git clone`, on the `main` branch, without your own code changes.)
 
 ## Company locations
 
@@ -57,7 +57,7 @@ You can rename, recolor, reorder, add, and delete stages in Settings. A job coun
 
 ## Applications: channel, referrers, connections
 
-- **Applied via**: Email, Company website, LinkedIn or Other, plus the address or link you used.
+- **Applied via**: Email, Company website, LinkedIn, Wuzzuf or Other (a Wuzzuf job import picks Wuzzuf by itself), plus the address or link you used.
 - **Referred by**: up to 3 people per application (optional). Pick from your contacts (connections at that company are listed first) or type a new name.
 - **Contacts → Import LinkedIn export**: on LinkedIn go to *Settings & Privacy → Data privacy → Get a copy of your data*, tick **Connections** (or, if it isn't listed, choose the larger archive "including connections"), then pick the `.zip` LinkedIn emails you. Only `Connections.csv` and `messages.csv` are read from it. Import it again any time; nobody is duplicated. Each job and company page then lists **your connections at that company**.
 - **Status and favourites**: give each person a status (**Message sent**, **Chatting**, **Referred**) right in the list, filter by it, and star people to keep them on the **Favourites** tab. Adding someone as a referrer marks them Referred.
@@ -79,12 +79,15 @@ npm test
 - **Add company → LinkedIn company page**: paste a link like `linkedin.com/company/acme` and click **Fill from LinkedIn** (or just paste). It reads the public page and fills in the name, website, industry, size, founded, headquarters, about text and logo. Fields you already typed are kept.
 - **Logos** are saved in your local database. They are looked up from the LinkedIn page, then the company website, then Google's icon cache, which only sees the domain. **Companies → Fetch missing logos** gets them for companies you already have. Click a logo on a company page to look it up again, use your own image, or remove it.
 - **Interview stages**: Screening → HR interview → Technical interview → Final interview. When a job is closed (Rejected, Ghosted, Withdrawn), the app shows the furthest stage it reached, e.g. "Ghosted after Technical interview". The dashboard flow chart splits them the same way.
+- **Refresh all from LinkedIn** (Companies page): reads every company's LinkedIn page again in the background, fills in details that are still empty and adds offices it doesn't have yet. Nothing you typed is overwritten. Companies with no link get their page looked up by name.
+- **Wuzzuf page**: besides the LinkedIn page (the main link), a company can have its Wuzzuf company page (`wuzzuf.net/jobs/careers/…`). Importing a Wuzzuf job fills it in.
+- **Company cards** show how many jobs you **applied** to there and how many **openings** it has; click the openings count to see them.
 - **Stars**: click ☆ on any job (list, board or job page). Starred jobs sort to the top, and the **Starred** button filters to them.
 
 ## Applications vs openings
 
 - **Applications** (the old Jobs page) is your log of what you applied for.
-- **Openings** lists positions your companies have open right now. **Find openings** checks each company's public LinkedIn jobs (in the company's country) and its own careers page. Careers pages are read when they use a job board with a public feed (Greenhouse, Lever, Workday, SmartRecruiters, Workable, Ashby, Recruitee, BambooHR) or standard job-posting markup. Other careers pages are linked, not read.
+- **Openings** lists positions your companies have open right now. **Find openings** (or **Find all jobs on LinkedIn** on the Companies page) checks each company's public LinkedIn jobs (in the company's country) and its own careers page. Careers pages are read when they use a job board with a public feed (Greenhouse, Lever, Workday, SmartRecruiters, Workable, Ashby, Recruitee, BambooHR) or standard job-posting markup. Other careers pages are linked, not read.
 - Search by words ("java cairo"), filter by company or source, star openings, hide ones you don't want, and see "New this week" or ones that have closed since the last check.
 - **I applied** turns an opening into an application (Applied today, via LinkedIn or the website) and opens it so you can add referrers.
 - If a company only has a LinkedIn *search* link, the check looks for its real company page by exact name and saves it, which also fetches its logo.

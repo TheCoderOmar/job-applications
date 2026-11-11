@@ -11,12 +11,19 @@ All notable changes to Job Applications.
 - Contacts: a status for each person (Message sent, Chatting, Referred), a status filter, and a Favourites tab
 - Update check: the app looks for a new version on GitHub and updates itself with one click
 - `setup.bat` installs everything and puts a Job Tracker icon on the desktop; `start.bat` is what the icon runs
-- A new install starts with 177 companies (with offices and logos); Settings can add them back
+- A new install starts with 231 companies (with offices and logos), including 50 of Egypt's biggest employers; Settings can add them back
+- **Refresh all from LinkedIn** on the Companies page: every company's details and offices read again in the background, without overwriting what you typed
+- **Find all jobs on LinkedIn** on the Companies page: the openings scan for every company, with progress
+- Company cards show how many jobs you applied to there and how many openings it has (click it to see them)
+- Applied via **Wuzzuf** is its own channel, and a company can keep its Wuzzuf page next to its LinkedIn page
+- **Settings → Check for updates**: check GitHub right away (the app also checks when it starts and every 6 hours)
 
 ### Fixed
 - Importing a job for a company that isn't in your list works, including on a brand-new install with no companies (the form used to say "Add a company first" and the extension did nothing); you can also type a new company in the form
 - A job with no company found is no longer filed under the first company in the list
 - A logo fetched for a company deleted meanwhile no longer crashes the server
+- Saving a company logo crashed the server with "Too many parameter values"
+- Company cards no longer overflow on a phone-width screen
 
 ## [1.1.0] - 2026-11-11
 

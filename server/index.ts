@@ -100,9 +100,9 @@ async function runLogoQueue() {
       // The company may have been deleted while its logo was being fetched: then there's nothing to save.
       db.prepare(
         `INSERT INTO company_logos (company_id, data, mime, status, fetched_at)
-         SELECT ?1, ?2, ?3, ?4, datetime('now') WHERE EXISTS (SELECT 1 FROM companies WHERE id = ?1)
+         SELECT ?, ?, ?, ?, datetime('now') WHERE EXISTS (SELECT 1 FROM companies WHERE id = ?)
          ON CONFLICT(company_id) DO UPDATE SET data = excluded.data, mime = excluded.mime, status = excluded.status, fetched_at = excluded.fetched_at`,
-      ).run(id, logo?.data ?? null, logo?.mime ?? null, logo ? 'found' : 'none');
+      ).run(id, logo?.data ?? null, logo?.mime ?? null, logo ? 'found' : 'none', id);
       if (logo) logoState.found++;
       // Be gentle with LinkedIn.
       if (logoQueue.length) await new Promise((r) => setTimeout(r, 1200));

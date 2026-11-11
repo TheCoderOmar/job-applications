@@ -153,6 +153,16 @@ export default function CompanyForm({ initial, onSaved, onCancel }: Props) {
           <label className="label">Careers page</label>
           <input className="input" placeholder="https://" value={d.careers_url ?? ''} onChange={(e) => set('careers_url', e.target.value)} />
         </div>
+        <div className="sm:col-span-2">
+          <label className="label">Wuzzuf company page</label>
+          <input
+            className="input"
+            placeholder="https://wuzzuf.net/jobs/careers/…"
+            value={d.wuzzuf ?? ''}
+            onChange={(e) => set('wuzzuf', e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted">Optional, besides the LinkedIn page above. Importing a Wuzzuf job fills it in for you.</p>
+        </div>
         <div>
           <label className="label">Industry</label>
           <input className="input" value={d.industry ?? ''} onChange={(e) => set('industry', e.target.value)} />

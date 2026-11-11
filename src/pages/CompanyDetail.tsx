@@ -117,6 +117,7 @@ export default function CompanyDetail() {
                 "LinkedIn company page" to fill in the logo and details.
               </p>
             )}
+            {company.wuzzuf && <ExtLink href={company.wuzzuf} icon="link" label="Wuzzuf page" />}
             {company.careers_url && <ExtLink href={company.careers_url} icon="briefcase" label="Careers page" />}
           </div>
           {(company.company_size || company.founded || company.headquarters || fromHome) && (

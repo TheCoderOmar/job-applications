@@ -7,7 +7,7 @@ import { replaceLocations, type LocationInput } from './companyLocations.js';
 
 const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'seed', 'default-companies.json');
 
-const FIELDS = ['name', 'website', 'linkedin', 'careers_url', 'industry', 'company_size', 'founded', 'headquarters', 'description', 'is_remote'] as const;
+const FIELDS = ['name', 'website', 'linkedin', 'wuzzuf', 'careers_url', 'industry', 'company_size', 'founded', 'headquarters', 'description', 'is_remote'] as const;
 
 interface SeedCompany {
   name: string;

@@ -229,6 +229,19 @@ db.exec(`
 if (!(db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).some((c) => c.name === 'talked_at'))
   db.exec(`ALTER TABLE contacts ADD COLUMN talked_at TEXT`);
 
+// A company's Wuzzuf page (wuzzuf.net/jobs/careers/…), next to its LinkedIn page (the main one).
+if (!(db.prepare('PRAGMA table_info(companies)').all() as { name: string }[]).some((c) => c.name === 'wuzzuf'))
+  db.exec(`ALTER TABLE companies ADD COLUMN wuzzuf TEXT`);
+
+// "Applied via Wuzzuf" is its own channel now: Wuzzuf jobs logged as "Other" before move to it (once).
+if (!db.prepare(`SELECT 1 FROM settings WHERE key = 'wuzzuf_channel_added'`).get()) {
+  db.transaction(() => {
+    db.exec(`UPDATE jobs SET apply_channel = 'wuzzuf'
+             WHERE apply_channel = 'other' AND (url LIKE '%wuzzuf.net%' OR apply_contact LIKE '%wuzzuf.net%')`);
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('wuzzuf_channel_added', '1')`).run();
+  })();
+}
+
 // Where you stand with a person (none = NULL), and people starred as favourites.
 {
   const cols = new Set((db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).map((c) => c.name));

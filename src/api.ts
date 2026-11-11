@@ -74,11 +74,14 @@ export const api = {
       title: string | null;
       company: string | null;
       company_linkedin: string | null;
+      /** The company's Wuzzuf page, on Wuzzuf postings. */
+      company_wuzzuf?: string | null;
       location: string | null;
       description: string | null;
       workplace: 'remote' | 'hybrid' | 'onsite' | null;
       closed: boolean;
     }>('/api/import/job', json('POST', { url, page })),
+  setCompanyWuzzuf: (id: number, url: string) => request<Company | null>(`/api/companies/${id}/wuzzuf`, json('PATCH', { url })),
   linkedInJob: (url: string) =>
     request<{ title: string | null; company: string | null; location: string | null; description: string | null; workplace: 'remote' | 'hybrid' | 'onsite' | null; closed: boolean }>(
       '/api/linkedin/job',

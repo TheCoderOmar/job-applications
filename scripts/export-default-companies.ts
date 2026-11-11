@@ -13,7 +13,7 @@ const db = new Database(dbPath, { readonly: true, fileMustExist: true });
 
 const companies = db
   .prepare(
-    `SELECT id, name, website, linkedin, careers_url, industry, company_size, founded, headquarters, description, is_remote
+    `SELECT id, name, website, linkedin, wuzzuf, careers_url, industry, company_size, founded, headquarters, description, is_remote
      FROM companies ORDER BY name COLLATE NOCASE`,
   )
   .all() as ({ id: number } & Record<string, unknown>)[];

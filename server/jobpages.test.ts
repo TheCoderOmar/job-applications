@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanJobUrl, jobBoard, keepPage, keptPage, parseJobPage } from './jobpages.js';
+import { cleanJobUrl, jobBoard, keepPage, keptPage, parseJobPage, canonicalWuzzufCompany } from './jobpages.js';
 
 const ld = (v: unknown) => `<script type="application/ld+json">${JSON.stringify(v)}</script>`;
 
@@ -85,6 +85,27 @@ test('parseJobPage reads a Wuzzuf job: place, workplace link, experience boxes, 
     Salary: 'Confidential',
   });
   assert.equal(parseJobPage(html, url, new Date('2026-11-05')).closed, true);
+});
+
+test('a Wuzzuf job links the company Wuzzuf page', () => {
+  const page = (extra: string, org: Record<string, unknown> = { name: 'RITEC' }) =>
+    `${ld({ '@type': 'JobPosting', title: 'QA Engineer', description: '<p>Test.</p>', hiringOrganization: org })}${extra}`;
+  const url = 'https://wuzzuf.net/jobs/p/abc123-qa-engineer-ritec-cairo-egypt';
+  assert.equal(
+    parseJobPage(page('<a href="https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595?o=1">RITEC</a>'), url).company_wuzzuf,
+    'https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595',
+  );
+  assert.equal(
+    parseJobPage(page('', { name: 'RITEC', sameAs: 'https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595' }), url).company_wuzzuf,
+    'https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595',
+  );
+  assert.equal(parseJobPage(page(''), url).company_wuzzuf, null);
+});
+
+test('canonicalWuzzufCompany keeps only company pages', () => {
+  assert.equal(canonicalWuzzufCompany('wuzzuf.net/jobs/careers/RITEC-Egypt-17595/'), 'https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595');
+  assert.equal(canonicalWuzzufCompany('https://wuzzuf.net/jobs/p/abc-qa'), null);
+  assert.equal(canonicalWuzzufCompany(null), null);
 });
 
 test('parseJobPage reads a jobs.workable.com job: remote, applicant country, requirements', () => {

@@ -7,12 +7,13 @@ export const WORK_TYPE_LABELS: Record<LocationType, string> = {
   remote: 'Remote',
   unknown: 'Unknown',
 };
-export type ApplyChannel = 'email' | 'website' | 'linkedin' | 'other';
+export type ApplyChannel = 'email' | 'website' | 'linkedin' | 'wuzzuf' | 'other';
 
 export const CHANNEL_LABELS: Record<ApplyChannel, string> = {
   email: 'Email',
   website: 'Company website',
   linkedin: 'LinkedIn',
+  wuzzuf: 'Wuzzuf',
   other: 'Other',
 };
 
@@ -59,6 +60,8 @@ export interface Company {
   name: string;
   website: string | null;
   linkedin: string | null;
+  /** The company's Wuzzuf page (wuzzuf.net/jobs/careers/…); LinkedIn stays the main link. */
+  wuzzuf: string | null;
   careers_url: string | null;
   industry: string | null;
   company_size: string | null;

@@ -16,7 +16,7 @@ import {
   canonicalProfileUrl, type LinkedInCompany, type LinkedInPost, type LinkedInProfile,
 } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
-import { cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
+import { canonicalWuzzufCompany, cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
 import { contentDisposition, defaultCvLabel, parseCvFile } from './cvs.js';
@@ -52,7 +52,7 @@ function isPastFirstStage(stageId: number) {
 
 const COMPANY_FIELDS = [
   'name', 'website', 'linkedin', 'careers_url', 'industry', 'company_size', 'founded', 'headquarters', 'notes', 'description',
-  'is_remote', 'is_current', 'address', 'city', 'country', 'lat', 'lng', 'maps_link',
+  'is_remote', 'is_current', 'address', 'city', 'country', 'lat', 'lng', 'maps_link', 'wuzzuf',
 ] as const;
 
 /** Accepts booleans, numbers, and CSV-style strings ("1", "true", "yes"). */
@@ -66,6 +66,8 @@ async function normalizeCompany(body: Row) {
   c.is_current = flag(body.is_current);
   c.lat = numOrNull(c.lat);
   c.lng = numOrNull(c.lng);
+  // Any Wuzzuf company link is kept in its short form; something that isn't one is kept as typed.
+  if (typeof c.wuzzuf === 'string') c.wuzzuf = canonicalWuzzufCompany(c.wuzzuf) ?? c.wuzzuf.trim();
   if ((c.lat === null || c.lng === null) && typeof c.maps_link === 'string') {
     const { coords } = await resolveMapsLink(c.maps_link).catch(() => ({ coords: null }));
     if (coords) Object.assign(c, coords);
@@ -243,6 +245,14 @@ app.get('/api/companies/:id', (req, res) => {
   res.json(row);
 });
 
+/** A company's Wuzzuf page, found on a Wuzzuf job: saved only when the company has none yet. */
+app.patch('/api/companies/:id/wuzzuf', (req, res) => {
+  const link = canonicalWuzzufCompany(String(req.body.url ?? ''));
+  if (!link) return res.status(400).json({ error: 'That is not a Wuzzuf company link (wuzzuf.net/jobs/careers/…).' });
+  db.prepare(`UPDATE companies SET wuzzuf = ? WHERE id = ? AND trim(IFNULL(wuzzuf, '')) = ''`).run(link, req.params.id);
+  res.json(companyOut(req.params.id) ?? null);
+});
+
 /** Adds offices found on LinkedIn that the company doesn't have yet; they're pinned in the background. */
 app.post('/api/companies/:id/locations', (req, res) => {
   if (!db.prepare('SELECT 1 FROM companies WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Company not found' });
@@ -408,7 +418,7 @@ const JOB_FIELDS = [
   'apply_channel', 'apply_contact', 'cv_id',
 ] as const;
 
-const CHANNELS = ['email', 'website', 'linkedin', 'other'];
+const CHANNELS = ['email', 'website', 'linkedin', 'wuzzuf', 'other'];
 const MAX_REFERRERS = 3;
 
 const jobSelect = `

@@ -5,7 +5,14 @@
 import { get, htmlToText, text, type LinkedInJob } from './openings.js';
 
 export type JobBoard = 'indeed' | 'wuzzuf' | 'workable';
-export type ImportedJob = LinkedInJob & { source: JobBoard };
+/** `company_wuzzuf`: the hiring company's Wuzzuf page (wuzzuf.net/jobs/careers/…), from a Wuzzuf posting. */
+export type ImportedJob = LinkedInJob & { source: JobBoard; company_wuzzuf?: string | null };
+
+/** "wuzzuf.net/jobs/careers/RITEC-Egypt-17595?x" → "https://wuzzuf.net/jobs/careers/RITEC-Egypt-17595"; anything else → null. */
+export function canonicalWuzzufCompany(input: string | null | undefined): string | null {
+  const m = /wuzzuf\.net\/jobs\/careers\/([^/?#\s"'<>]+)/i.exec(String(input ?? ''));
+  return m ? `https://wuzzuf.net/jobs/careers/${m[1]}` : null;
+}
 
 /** Which board a job link is on: an Indeed job (?jk= / ?vjk=), a Wuzzuf job (/jobs/p/…), a jobs.workable.com job (/view/…). */
 export function jobBoard(url: string | null | undefined): JobBoard | null {
@@ -152,6 +159,9 @@ export function parseJobPage(html: string, url: string, now = new Date()): Impor
     title,
     company,
     company_linkedin: null,
+    // The company's name on a Wuzzuf posting links to its Wuzzuf page.
+    company_wuzzuf:
+      board === 'wuzzuf' ? (canonicalWuzzufCompany(String(p?.hiringOrganization?.sameAs ?? '')) ?? canonicalWuzzufCompany(html)) : null,
     location,
     description,
     workplace: workplaceOf(board, html, p, `${location ?? ''} ${title ?? ''} ${description?.slice(0, 600) ?? ''}`),

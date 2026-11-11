@@ -25,6 +25,7 @@ const CONTACT_LABEL: Record<string, string> = {
   website: 'Application portal link',
   // Picked by hand: usually a recruiter's LinkedIn post. (Imported jobs hide this field.)
   linkedin: 'LinkedIn post link',
+  wuzzuf: 'Wuzzuf job link',
   other: 'Where you applied',
 };
 
@@ -42,7 +43,9 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
    * Company named on an imported posting but not in your list yet. It's picked in the form as
    * "<name> (new)" (company_id NEW_COMPANY) and created only when you save, from its LinkedIn page when known.
    */
-  const [newCompany, setNewCompany] = useState<{ name: string; linkedin: string | null } | null>(null);
+  const [newCompany, setNewCompany] = useState<{ name: string; linkedin: string | null; wuzzuf?: string | null } | null>(null);
+  // The company's Wuzzuf page from an imported Wuzzuf job: saved with a new company, or on one that has none yet.
+  const [companyWuzzuf, setCompanyWuzzuf] = useState<string | null>(null);
   async function createNewCompany(): Promise<number> {
     const nc = newCompany!;
     const name = nc.name.trim();
@@ -61,7 +64,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         details = { linkedin: nc.linkedin };
       }
     }
-    const c = await api.createCompany({ ...details, name });
+    const c = await api.createCompany({ ...details, name, wuzzuf: nc.wuzzuf ?? companyWuzzuf ?? null });
     setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
     setNewCompany(null);
     return c.id;
@@ -127,7 +130,9 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       // Importing again in the extension's window reuses the page it sent (Indeed and Wuzzuf can't be fetched).
       const li = await api.importJob(link, page ?? (link === autoImport ? autoImportPage : undefined));
       // LinkedIn jobs are applied to on LinkedIn; Workable is the company's own careers page.
-      const channel: ApplyChannel = li.source === 'linkedin' ? 'linkedin' : li.source === 'workable' ? 'website' : 'other';
+      const channel: ApplyChannel =
+        li.source === 'linkedin' ? 'linkedin' : li.source === 'workable' ? 'website' : li.source === 'wuzzuf' ? 'wuzzuf' : 'other';
+      setCompanyWuzzuf(li.company_wuzzuf ?? null);
       const filled: string[] = [];
       const company = li.company ? companies.find((c) => sameName(c.name, li.company!)) : undefined;
       const ghosted = stages.find((s) => s.name.toLowerCase() === 'ghosted');
@@ -136,7 +141,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       {
         const next = { ...prev, url: prev.url?.trim() ? prev.url : link };
         if (next.apply_channel !== channel)
-          (next.apply_channel = channel), filled.push(`applied via ${channel === 'linkedin' ? 'LinkedIn' : channel === 'website' ? 'company website' : 'other'}`);
+          (next.apply_channel = channel), filled.push(`applied via ${CHANNEL_LABELS[channel]}`);
         // The job link now lives in "Job posting link"; a copy in the applied-via field isn't needed.
         if (next.apply_contact && isImportableJob(next.apply_contact)) next.apply_contact = null;
         const take = (empty: boolean) => replace || empty;
@@ -154,7 +159,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       if (li.closed) notes.push(`${site} says this job is no longer accepting applications.`);
       if (li.company && !company && !isEdit) {
         notes.push(`${li.company} isn't in your companies yet; it's added when you save.`);
-        setNewCompany({ name: li.company, linkedin: li.company_linkedin ?? null });
+        setNewCompany({ name: li.company, linkedin: li.company_linkedin ?? null, wuzzuf: li.company_wuzzuf ?? null });
       } else setNewCompany(null);
       setLiStatus({
         text: [filled.length ? `Imported the ${filled.join(', ')} from ${site}.` : 'Already up to date.', ...notes].join(' '),
@@ -214,6 +219,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   const viaLinkedInJob =
     (d.apply_channel === 'linkedin' && isLinkedInJob(d.url ?? '')) ||
     (d.apply_channel === 'website' && isWorkableJob(d.url ?? '')) ||
+    (d.apply_channel === 'wuzzuf' && boardOf(d.url ?? '') === 'Wuzzuf') ||
     (d.apply_channel === 'other' && isBoardJob(d.url ?? ''));
   const set = <K extends keyof Job>(k: K, v: Job[K] | null) => setD((prev) => ({ ...prev, [k]: v }));
   const isEdit = !!initial?.id;
@@ -239,6 +245,8 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       const company_id = fields.company_id === NEW_COMPANY ? await createNewCompany() : fields.company_id;
       const body = { ...fields, company_id, referrer_ids: referrers.map((c) => c.id) };
       const saved = isEdit ? await api.updateJob(initial!.id!, body) : await api.createJob(body);
+      // An existing company without a Wuzzuf page gets the one from this Wuzzuf job (never replaces one it has).
+      if (companyWuzzuf && company_id && fields.company_id !== NEW_COMPANY) await api.setCompanyWuzzuf(Number(company_id), companyWuzzuf).catch(() => {});
       onSaved(saved);
     } catch (err) {
       setError((err as Error).message);

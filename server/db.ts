@@ -354,3 +354,52 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_attempts_question ON quiz_attempts(question_id);
 `);
+
+// ---------- Company locations ----------
+// A company can have several offices. The primary one is mirrored into companies.address/city/country/lat/lng/maps_link,
+// so everything that reads a single company location keeps working.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    -- what LinkedIn shows on the card: "Primary · Headquarters", or the office's entity name
+    label TEXT,
+    address TEXT,
+    city TEXT,
+    country TEXT,
+    lat REAL,
+    lng REAL,
+    maps_link TEXT,
+    -- how close the pin is: exact | street | area | city | manual (typed or from a Maps link)
+    precision TEXT,
+    -- NULL = not looked up yet, 'found', 'not_found'
+    geocode_status TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_locations_company ON company_locations(company_id);
+`);
+
+/**
+ * Companies without any location row get one primary location from their own address/city/country/lat/lng.
+ * Runs once on upgrade, and again after restoring a backup made before locations existed.
+ */
+export function backfillLocations() {
+  db.prepare(
+    `INSERT INTO company_locations (company_id, address, city, country, lat, lng, maps_link, precision, geocode_status, is_primary)
+     SELECT c.id, c.address, c.city, c.country, c.lat, c.lng, c.maps_link,
+            CASE WHEN c.lat IS NOT NULL AND c.lng IS NOT NULL THEN 'manual' END,
+            CASE WHEN c.lat IS NOT NULL AND c.lng IS NOT NULL THEN 'found' END, 1
+     FROM companies c
+     WHERE NOT EXISTS (SELECT 1 FROM company_locations l WHERE l.company_id = c.id)
+       AND (c.lat IS NOT NULL OR trim(IFNULL(c.address, '')) != '' OR trim(IFNULL(c.city, '')) != '')`,
+  ).run();
+}
+
+if (!db.prepare(`SELECT 1 FROM settings WHERE key = 'company_locations_added'`).get()) {
+  db.transaction(() => {
+    backfillLocations();
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('company_locations_added', '1')`).run();
+  })();
+}

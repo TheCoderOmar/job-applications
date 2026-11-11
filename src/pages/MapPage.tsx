@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { api } from '../api';
-import type { Company, Home, Job, Stage } from '../types';
+import type { Company, CompanyLocation, Home, Job, Stage } from '../types';
 import Icon from '../components/Icon';
 import CurrentBadge from '../components/CurrentBadge';
 import { StageBadge } from '../components/Stage';
@@ -38,6 +38,35 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
+/** Clicking the map itself (not a pin) clears the selected company. */
+function ClearOnMapClick({ onClear }: { onClear: () => void }) {
+  useMapEvents({ click: onClear });
+  return null;
+}
+
+/** When a company is selected, makes sure all its offices are in view (zooming out only if some are off-screen). */
+function ShowSelected({ points }: { points: [number, number][] }) {
+  const map = useMap();
+  const key = points.map((p) => p.join(',')).join('|');
+  useEffect(() => {
+    if (points.length < 2) return;
+    const b = L.latLngBounds(points);
+    if (!map.getBounds().contains(b)) map.fitBounds(b, { padding: [80, 80], maxZoom: map.getZoom() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, map]);
+  return null;
+}
+
+type Spot = Pick<CompanyLocation, 'lat' | 'lng' | 'label' | 'address' | 'city' | 'country'> & { id: number | string; is_primary: number };
+
+/** A company's pinned offices (its own lat/lng when it has no location rows). */
+const spotsOf = (c: Company): Spot[] => {
+  const list: Spot[] = c.locations?.length
+    ? c.locations
+    : [{ id: `c${c.id}`, lat: c.lat, lng: c.lng, label: null, address: c.address, city: c.city, country: c.country, is_primary: 1 }];
+  return list.filter((l) => l.lat != null && l.lng != null);
+};
+
 function Toggle({ checked, onChange, label, swatch }: { checked: boolean; onChange: (v: boolean) => void; label: string; swatch: string }) {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-3 py-1.5">
@@ -67,6 +96,8 @@ export default function MapPage() {
   const [stageId, setStageId] = useState<number | ''>('');
   const [panelOpen, setPanelOpen] = useState(true);
   const [home, setHome] = useState<Home | null>(null);
+  // The company whose pin you clicked: all its offices are highlighted.
+  const [selected, setSelected] = useState<number | null>(null);
 
   useEffect(() => {
     api.companies().then(setCompanies);
@@ -91,10 +122,12 @@ export default function MapPage() {
     [companies, showOffice, showRemote, stageId, jobsByCompany],
   );
 
-  const pinned = visible.filter((c) => c.lat != null && c.lng != null);
-  const unpinned = visible.filter((c) => c.lat == null || c.lng == null);
-  const points = pinned.map((c) => [c.lat!, c.lng!] as [number, number]);
+  const spots = visible.flatMap((c) => spotsOf(c).map((l) => ({ c, l })));
+  const pinned = visible.filter((c) => spotsOf(c).length);
+  const unpinned = visible.filter((c) => !spotsOf(c).length);
+  const points = spots.map(({ l }) => [l.lat!, l.lng!] as [number, number]);
   if (home) points.push([home.lat, home.lng]);
+  const selectedPoints = spots.filter(({ c }) => c.id === selected).map(({ l }) => [l.lat!, l.lng!] as [number, number]);
 
   const officeCount = companies.filter((c) => !c.is_remote).length;
   const remoteCount = companies.length - officeCount;
@@ -104,6 +137,8 @@ export default function MapPage() {
       <MapContainer center={[25, 20]} zoom={3} minZoom={2} worldCopyJump className="h-full w-full">
         <DarkTiles />
         <FitBounds points={points} />
+        <ClearOnMapClick onClear={() => setSelected(null)} />
+        <ShowSelected points={selectedPoints} />
         {home && (
           <Marker position={[home.lat, home.lng]} icon={homeIcon} zIndexOffset={1000}>
             <Popup>
@@ -112,10 +147,22 @@ export default function MapPage() {
             </Popup>
           </Marker>
         )}
-        {pinned.map((c) => {
+        {spots.map(({ c, l }) => {
           const cj = jobsByCompany.get(c.id) ?? [];
+          const count = spotsOf(c).length;
+          const state = selected === null ? 'normal' : selected === c.id ? 'selected' : 'dim';
+          const place = [l.city, l.country].filter(Boolean).join(', ') || l.address || locationText(c);
           return (
-            <Marker key={c.id} position={[c.lat!, c.lng!]} icon={pinIcon(!!c.is_remote)}>
+            <Marker
+              key={`${c.id}-${l.id}`}
+              position={[l.lat!, l.lng!]}
+              icon={pinIcon(!!c.is_remote, state)}
+              zIndexOffset={state === 'selected' ? 1500 : 0}
+              eventHandlers={{
+                click: () => setSelected(c.id),
+                popupclose: () => setSelected((s) => (s === c.id ? null : s)),
+              }}
+            >
               <Popup>
                 <div className="min-w-[200px] space-y-2">
                   <div>
@@ -123,11 +170,13 @@ export default function MapPage() {
                     {c.is_current ? <CurrentBadge /> : null}
                     <div className="text-xs text-muted">
                       {c.is_remote ? 'Remote · ' : ''}
-                      {locationText(c)}
+                      {place}
+                      {l.label ? ` · ${l.label}` : ''}
                     </div>
+                    {count > 1 && <div className="text-xs text-amber-300">{count} locations, all highlighted on the map</div>}
                     {home && (
                       <div className="text-xs text-muted">
-                        ~{formatKm(distanceKm(home, { lat: c.lat!, lng: c.lng! }))} from home (straight line)
+                        ~{formatKm(distanceKm(home, { lat: l.lat!, lng: l.lng! }))} from home (straight line)
                       </div>
                     )}
                   </div>
@@ -161,7 +210,7 @@ export default function MapPage() {
           >
             <span className="font-semibold">Company map</span>
             <span className="text-xs text-muted">
-              {pinned.length} pinned {panelOpen ? '▴' : '▾'}
+              {pinned.length} pinned{spots.length > pinned.length ? ` · ${spots.length} offices` : ''} {panelOpen ? '▴' : '▾'}
             </span>
           </button>
           {panelOpen && (

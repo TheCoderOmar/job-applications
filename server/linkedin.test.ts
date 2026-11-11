@@ -43,6 +43,7 @@ test('parseCompanyPage reads name, about list, website and logo', () => {
     headquarters: 'Cairo, Egypt',
     founded: '1999',
     logo_url: 'https://media.licdn.com/logo.png?e=1&v=beta',
+    locations: [],
   });
 });
 

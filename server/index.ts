@@ -1,5 +1,11 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { db, seedStages } from './db.js';
+import { backfillLocations, db, seedStages } from './db.js';
+import {
+  addLocations, geocodeState, locationsOf, primaryFromCompany, queueGeocoding, replaceLocations, resolveLinks, withLocations,
+  type LocationInput,
+} from './companyLocations.js';
+import { mapsSearchLink } from './geocode.js';
+import { parseLocationsFromHtml, type ParsedLocation } from './locations.js';
 import { resolveMapsLink } from './mapsLink.js';
 import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
@@ -174,13 +180,60 @@ app.post(
 );
 
 app.get('/api/companies', (_req, res) => {
-  res.json(db.prepare(`${companySelect} GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all());
+  res.json(withLocations(db.prepare(`${companySelect} GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all() as { id: number }[]));
 });
 
+/** One company with its locations. */
+const companyOut = (id: number | string | bigint) => {
+  const row = db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(id) as Row | undefined;
+  return row ? { ...row, locations: locationsOf(Number(id)) } : undefined;
+};
+
+/** Saves the locations list sent with a company (or, without one, its single address as the primary location). */
+async function saveCompanyLocations(id: number | string, body: Row) {
+  if (Array.isArray(body.locations)) replaceLocations(id, await resolveLinks(body.locations as LocationInput[]));
+  else primaryFromCompany(id);
+  queueGeocoding();
+}
+
 app.get('/api/companies/:id', (req, res) => {
-  const row = db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(req.params.id);
+  const row = companyOut(req.params.id);
   if (!row) return res.status(404).json({ error: 'Company not found' });
   res.json(row);
+});
+
+/** Adds offices found on LinkedIn that the company doesn't have yet; they're pinned in the background. */
+app.post('/api/companies/:id/locations', (req, res) => {
+  if (!db.prepare('SELECT 1 FROM companies WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Company not found' });
+  const found = (Array.isArray(req.body.locations) ? req.body.locations : []) as ParsedLocation[];
+  const added = addLocations(req.params.id, found);
+  res.json({ added, company: companyOut(req.params.id) });
+});
+
+/** Pinning progress, and a Google Maps search link for checking a location by hand. */
+app.get('/api/geocode/status', (_req, res) => {
+  const pending = (db
+    .prepare(`SELECT COUNT(*) AS n FROM company_locations WHERE lat IS NULL AND geocode_status IS NULL AND trim(IFNULL(address, '')) != ''`)
+    .get() as { n: number }).n;
+  res.json({ ...geocodeState, pending });
+});
+app.post('/api/geocode/link', (req, res) => {
+  res.json({ link: mapsSearchLink({ address: req.body.address ?? null, city: req.body.city ?? null, country: req.body.country ?? null }) });
+});
+
+/** Optional Google Maps key for exact pins; without one, OpenStreetMap is used. The key itself is never sent back. */
+app.get('/api/settings/google-key', (_req, res) => {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = 'google_maps_key'`).get() as { value: string } | undefined;
+  res.json({ set: !!row?.value, hint: row?.value ? `…${row.value.slice(-4)}` : null });
+});
+app.put('/api/settings/google-key', (req, res) => {
+  const key = String(req.body.key ?? '').trim();
+  if (key) db.prepare(`INSERT INTO settings (key, value) VALUES ('google_maps_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key);
+  else db.prepare(`DELETE FROM settings WHERE key = 'google_maps_key'`).run();
+  // Locations OpenStreetMap couldn't find get another try with Google.
+  if (key) db.prepare(`UPDATE company_locations SET geocode_status = NULL WHERE geocode_status = 'not_found'`).run();
+  queueGeocoding();
+  res.json({ set: !!key, hint: key ? `…${key.slice(-4)}` : null });
 });
 
 app.post(
@@ -191,8 +244,10 @@ app.post(
     const cols = COMPANY_FIELDS.join(', ');
     const params = COMPANY_FIELDS.map((f) => '@' + f).join(', ');
     const info = db.prepare(`INSERT INTO companies (${cols}) VALUES (${params})`).run(c);
-    if (c.linkedin || c.website) queueLogos([Number(info.lastInsertRowid)]);
-    res.status(201).json(db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(info.lastInsertRowid));
+    const id = Number(info.lastInsertRowid);
+    await saveCompanyLocations(id, req.body);
+    if (c.linkedin || c.website) queueLogos([id]);
+    res.status(201).json(companyOut(id));
   }),
 );
 
@@ -213,7 +268,8 @@ app.put(
       db.prepare('DELETE FROM company_logos WHERE company_id = ?').run(req.params.id);
       queueLogos([Number(req.params.id)]);
     }
-    res.json(db.prepare(`${companySelect} WHERE c.id = ? GROUP BY c.id`).get(req.params.id));
+    await saveCompanyLocations(req.params.id, req.body);
+    res.json(companyOut(req.params.id));
   }),
 );
 
@@ -1471,6 +1527,7 @@ app.get('/api/export', (_req, res) => {
     exported_at: new Date().toISOString(),
     stages: db.prepare('SELECT * FROM stages ORDER BY sort_order').all(),
     companies: db.prepare('SELECT * FROM companies ORDER BY id').all(),
+    company_locations: db.prepare('SELECT * FROM company_locations ORDER BY id').all(),
     cvs: (db.prepare('SELECT * FROM cvs ORDER BY id').all() as Row[]).map((cv) => ({ ...cv, data: (cv.data as Buffer).toString('base64') })),
     jobs: db.prepare('SELECT * FROM jobs ORDER BY id').all(),
     stage_history: db.prepare('SELECT * FROM stage_history ORDER BY id').all(),
@@ -1499,8 +1556,9 @@ app.post(
   '/api/import',
   wrap(async (req, res) => {
     const {
-      mode = 'merge', stages = [], companies = [], jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
+      mode = 'merge', stages = [], companies = [], company_locations, jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
     } = req.body as {
+      company_locations?: Row[];
       contacts?: Row[];
       job_referrers?: Row[];
       company_logos?: Row[];
@@ -1518,7 +1576,7 @@ app.post(
 
     if (mode === 'replace') {
       db.transaction(() => {
-        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
+        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_locations; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
         const insertAll = (table: string, rows: Row[]) => {
           for (const r of rows) {
             const keys = Object.keys(r);
@@ -1527,6 +1585,9 @@ app.post(
         };
         insertAll('stages', stages);
         insertAll('companies', companies);
+        // A backup from before locations existed: each company's own address becomes its location.
+        if (Array.isArray(company_locations)) insertAll('company_locations', company_locations);
+        else backfillLocations();
         insertAll('cvs', cvs.map((cv) => ({ ...cv, data: Buffer.from(String(cv.data ?? ''), 'base64') })));
         insertAll('jobs', jobs);
         insertAll('stage_history', stage_history);
@@ -1559,12 +1620,19 @@ app.post(
       let addedCompanies = 0;
       const cols = COMPANY_FIELDS.join(', ');
       const params = COMPANY_FIELDS.map((f) => '@' + f).join(', ');
-      for (const c of prepared) {
-        if (!c.name || byName.has(String(c.name).toLowerCase())) continue;
+      const newIds: number[] = [];
+      prepared.forEach((c, i) => {
+        if (!c.name || byName.has(String(c.name).toLowerCase())) return;
         const info = db.prepare(`INSERT INTO companies (${cols}) VALUES (${params})`).run(c);
-        byName.set(String(c.name).toLowerCase(), Number(info.lastInsertRowid));
+        const id = Number(info.lastInsertRowid);
+        byName.set(String(c.name).toLowerCase(), id);
+        newIds.push(id);
+        // Its offices: a "locations" list in the file, else its own address.
+        const locs = (companies[i] as Row).locations;
+        if (Array.isArray(locs) && locs.length) replaceLocations(id, locs as LocationInput[]);
+        else primaryFromCompany(id);
         addedCompanies++;
-      }
+      });
 
       let addedJobs = 0;
       const skipped: string[] = [];
@@ -1602,6 +1670,7 @@ app.post(
     })();
 
     queueLogos(missingLogoIds());
+    queueGeocoding();
     res.json(result);
   }),
 );
@@ -1629,6 +1698,9 @@ for (const { id } of db
   )
   .all() as { id: number }[])
   queueDescriptionFill(id);
+
+// Offices with an address but no pin yet (from a LinkedIn import that was interrupted, say).
+queueGeocoding();
 
 // Ghost stale applications now; check open applications' LinkedIn postings a minute after start; both twice a day.
 ghostStaleApplications();

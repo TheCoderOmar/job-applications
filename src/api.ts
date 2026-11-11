@@ -1,4 +1,4 @@
-import type { Company, Contact, ContactStatus, Cv, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
+import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
@@ -18,8 +18,13 @@ const json = (method: string, data: unknown): RequestInit => ({ method, body: JS
 export const api = {
   companies: () => request<Company[]>('/api/companies'),
   company: (id: number | string) => request<Company>(`/api/companies/${id}`),
-  createCompany: (data: Partial<Company>) => request<Company>('/api/companies', json('POST', data)),
-  updateCompany: (id: number, data: Partial<Company>) => request<Company>(`/api/companies/${id}`, json('PUT', data)),
+  createCompany: (data: CompanyInput) => request<Company>('/api/companies', json('POST', data)),
+  updateCompany: (id: number, data: CompanyInput) => request<Company>(`/api/companies/${id}`, json('PUT', data)),
+  addLocations: (id: number, locations: FoundLocation[]) =>
+    request<{ added: number; company: Company }>(`/api/companies/${id}/locations`, json('POST', { locations })),
+  geocodeStatus: () => request<{ running: boolean; pending: number; done: number; failed: number; error: string | null }>('/api/geocode/status'),
+  googleKey: () => request<{ set: boolean; hint: string | null }>('/api/settings/google-key'),
+  setGoogleKey: (key: string) => request<{ set: boolean; hint: string | null }>('/api/settings/google-key', json('PUT', { key })),
   deleteCompany: (id: number) => request<void>(`/api/companies/${id}`, { method: 'DELETE' }),
   linkedInPost: (url: string) =>
     request<{ text: string | null; author: string | null; posted_at: string | null; description: string }>(

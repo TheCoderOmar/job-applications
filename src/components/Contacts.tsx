@@ -115,7 +115,7 @@ export function ContactStatusSelect({ c, onChange }: { c: Contact; onChange: (c:
       <select
         aria-label={`Status with ${c.full_name}`}
         className={`input col-start-1 row-start-1 cursor-pointer whitespace-nowrap py-1 text-xs font-medium ${current ? '' : 'text-muted'} ${error ? 'border-red-500/60' : ''}`}
-        style={current ? { color: current.color, borderColor: current.color + '66', background: current.color + '14' } : undefined}
+        style={current ? { color: current.color, borderColor: current.color + '66', backgroundColor: current.color + '14' } : undefined}
         value={c.status ?? ''}
         onChange={(e) => pick(e.target.value)}
         onClick={(e) => e.stopPropagation()}

@@ -15,12 +15,26 @@ export function DarkTiles() {
   );
 }
 
-const icons = {
-  onsite: L.divIcon({ className: '', html: '<div class="pin pin-onsite"></div>', iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10] }),
-  remote: L.divIcon({ className: '', html: '<div class="pin pin-remote"></div>', iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10] }),
-};
+/** How a pin looks: normal, the selected company's (bigger, amber, pulsing) or another company's while one is selected (dimmed). */
+export type PinState = 'normal' | 'selected' | 'dim';
 
-export const pinIcon = (remote: boolean) => (remote ? icons.remote : icons.onsite);
+const icons = new Map<string, L.DivIcon>();
+export function pinIcon(remote: boolean, state: PinState = 'normal') {
+  const key = `${remote}-${state}`;
+  let icon = icons.get(key);
+  if (!icon) {
+    const size = state === 'selected' ? 22 : 16;
+    icon = L.divIcon({
+      className: '',
+      html: `<div class="pin ${remote ? 'pin-remote' : 'pin-onsite'}${state === 'normal' ? '' : ` pin-${state}`}"></div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor: [0, -size / 2 - 2],
+    });
+    icons.set(key, icon);
+  }
+  return icon;
+}
 
 export const homeIcon = L.divIcon({
   className: '',

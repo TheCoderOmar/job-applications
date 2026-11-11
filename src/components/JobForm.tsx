@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, useRef } from 'react';
 import { api } from '../api';
-import { CHANNEL_LABELS, type ApplyChannel, type Company, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
+import { CHANNEL_LABELS, type ApplyChannel, type Company, type CompanyInput, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
 import { Link } from 'react-router-dom';
 import { ReferrerPicker } from './Contacts';
 import StepsEditor from './Steps';
@@ -50,7 +50,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     // Typed a company you already have: use it rather than making a copy.
     const known = companies.find((c) => sameName(c.name, name));
     if (known) return known.id;
-    let details: Partial<Company> = {};
+    let details: CompanyInput = {};
     if (nc.linkedin) {
       try {
         const li = await api.linkedInCompany(nc.linkedin);

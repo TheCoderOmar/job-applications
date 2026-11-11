@@ -6,6 +6,7 @@ import {
 } from './companyLocations.js';
 import { mapsSearchLink } from './geocode.js';
 import { loadDefaultCompanies, loadDefaultsOnFirstRun, readDefaults } from './defaults.js';
+import { applyUpdate, blockedReason, checkForUpdate, type UpdateStatus } from './update.js';
 import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
 import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
@@ -248,6 +249,40 @@ app.post('/api/companies/:id/locations', (req, res) => {
   const added = addLocations(req.params.id, found);
   res.json({ added, company: companyOut(req.params.id) });
 });
+
+// ---------- Updates from GitHub ----------
+// Checked a few seconds after start and every 6 hours (never when JOBS_NO_UPDATE_CHECK is set, e.g. in tests).
+
+let update: UpdateStatus | null = null;
+const refreshUpdate = async () => {
+  if (process.env.JOBS_NO_UPDATE_CHECK) return;
+  update = await checkForUpdate();
+};
+setTimeout(() => void refreshUpdate(), 5000);
+setInterval(() => void refreshUpdate(), 6 * 60 * 60 * 1000);
+
+app.get(
+  '/api/update',
+  wrap(async (req, res) => {
+    if (req.query.refresh || !update) await refreshUpdate();
+    const s = update ?? (await checkForUpdate(undefined, false));
+    res.json({ ...s, blocked: s.behind ? blockedReason(s) : null });
+  }),
+);
+
+/** Fast-forwards to the latest version. The dev server then restarts by itself on the changed files. */
+app.post(
+  '/api/update',
+  wrap(async (_req, res) => {
+    try {
+      const r = await applyUpdate();
+      update = await checkForUpdate(undefined, false);
+      res.json(r);
+    } catch (e) {
+      res.status(409).json({ error: (e as Error).message });
+    }
+  }),
+);
 
 /** The starter companies (seed/default-companies.json): how many there are, and adding the ones you don't have. */
 app.get('/api/default-companies', (_req, res) => {

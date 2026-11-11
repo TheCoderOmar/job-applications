@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import Icon, { type IconName } from './Icon';
+import UpdateBanner from './UpdateBanner';
 
 const nav: { to: string; label: string; icon: IconName }[] = [
   { to: '/', label: 'Dashboard', icon: 'dashboard' },
@@ -86,6 +87,7 @@ export default function Layout() {
           </div>
         )}
       </main>
+      <UpdateBanner />
     </div>
   );
 }

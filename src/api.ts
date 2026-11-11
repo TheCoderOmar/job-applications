@@ -2,6 +2,16 @@ import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, 
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
+/** Is there a newer version on GitHub, and can it be applied here? */
+export interface UpdateInfo {
+  supported: boolean;
+  behind: number;
+  commits: string[];
+  needs_restart: boolean;
+  /** Why "Update now" can't run here (null when it can). */
+  blocked: string | null;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -22,6 +32,8 @@ export const api = {
   updateCompany: (id: number, data: CompanyInput) => request<Company>(`/api/companies/${id}`, json('PUT', data)),
   addLocations: (id: number, locations: FoundLocation[]) =>
     request<{ added: number; company: Company }>(`/api/companies/${id}/locations`, json('POST', { locations })),
+  updateStatus: () => request<UpdateInfo>('/api/update'),
+  applyUpdate: () => request<{ updated: number; needs_restart: boolean }>('/api/update', { method: 'POST' }),
   defaultCompanies: () => request<{ total: number; missing: number }>('/api/default-companies'),
   loadDefaultCompanies: () => request<{ added: number }>('/api/default-companies', { method: 'POST' }),
   geocodeStatus: () => request<{ running: boolean; pending: number; done: number; failed: number; error: string | null }>('/api/geocode/status'),

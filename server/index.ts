@@ -5,9 +5,13 @@ import {
   type LocationInput,
 } from './companyLocations.js';
 import { mapsSearchLink } from './geocode.js';
-import { parseLocationsFromHtml, type ParsedLocation } from './locations.js';
+import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
+import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
-import { fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, type LinkedInPost } from './linkedin.js';
+import {
+  fetchLinkedInCompany, fetchLinkedInPost, fetchLinkedInProfile, findLogo, isLinkedInPost, parseCompanyPage, parsePostPage, parseProfilePage,
+  canonicalProfileUrl, type LinkedInCompany, type LinkedInPost, type LinkedInProfile,
+} from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
 import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
@@ -166,16 +170,48 @@ app.delete('/api/companies/:id/logo', (req, res) => {
 
 // ---------- LinkedIn company lookup ----------
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Fields of `b` that have a value win over `a`'s. */
+const overlay = <T extends object>(a: T, b: Partial<T> | null | undefined): T => {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b ?? {})) if (v !== null && v !== undefined && v !== '') (out as Record<string, unknown>)[k] = v;
+  return out;
+};
+
+/**
+ * A LinkedIn company page → its details and offices, plus the company if you already have it.
+ * With `page` (sent by the extension from your logged-in tab) the offices come from the tab's "Locations" cards;
+ * the public page (read as a link-preview bot) fills in the rest, or everything when there's no tab.
+ */
 app.post(
   '/api/linkedin/company',
   wrap(async (req, res) => {
+    const url = String(req.body.url ?? '');
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    let data: LinkedInCompany | null = null;
+    let error: Error | null = null;
     try {
-      const data = await fetchLinkedInCompany(String(req.body.url ?? ''));
-      const existing = db.prepare('SELECT id, name FROM companies WHERE linkedin = ? OR lower(name) = lower(?)').get(data.linkedin, data.name ?? '');
-      res.json({ ...data, existing: existing ?? null });
+      data = await fetchLinkedInCompany(url);
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept) {
+      const canonical = canonicalCompanyUrl(kept.url) ?? canonicalCompanyUrl(url) ?? url;
+      const tab = cleanTab<TabCompany>(kept.data);
+      const fromHtml = parseCompanyPage(kept.html, canonical);
+      const cards = tidyLocations((tab.cards ?? []).map((c) => parseLocationCard(Array.isArray(c?.lines) ? c.lines.map(String) : [], c?.heading)));
+      const locations = cards.length ? cards : fromHtml.locations.length ? fromHtml.locations : (data?.locations ?? []);
+      data = { ...overlay(fromHtml, data), name: data?.name ?? tab.name ?? fromHtml.name, linkedin: canonical, locations };
+    }
+    if (!data?.name) return res.status(422).json({ error: error?.message ?? 'No company name found on that page.' });
+    const existing = db
+      .prepare(
+        `SELECT id, name, (SELECT COUNT(*) FROM company_locations l WHERE l.company_id = c.id) AS location_count
+         FROM companies c WHERE linkedin = ? OR lower(name) = lower(?)`,
+      )
+      .get(data.linkedin, data.name);
+    res.json({ ...data, existing: existing ?? null });
   }),
 );
 
@@ -500,6 +536,8 @@ async function importJob(url: string, pageId: string | null) {
 app.post('/api/import/page', (req, res) => {
   const url = String(req.body.url ?? '');
   const html = String(req.body.html ?? '');
+  // LinkedIn company pages, profiles and posts come with what the extension read from them (`data`).
+  if (linkedInKind(url)) return res.json({ page: keepPage(url, html, Date.now(), req.body.data ?? null), url });
   if (!jobBoard(url) || !html) return res.status(400).json({ error: 'Send the job page link and its HTML.' });
   res.json({ page: keepPage(url, html), url: cleanJobUrl(url) });
 });
@@ -525,12 +563,25 @@ app.post(
 app.post(
   '/api/linkedin/post',
   wrap(async (req, res) => {
+    // From the extension: the post as your logged-in tab showed it (author's page and headline included).
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    const tab = kept ? cleanTab<TabPost>(kept.data) : {};
+    let p: LinkedInPost | null = null;
+    let error: Error | null = null;
     try {
-      const p = await fetchLinkedInPost(String(req.body.url ?? ''));
-      res.json({ ...p, description: postDescription(p) });
+      p = await fetchLinkedInPost(String(req.body.url ?? ''));
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept && !p?.text) p = overlay(parsePostPage(kept.html), p);
+    if (p && tab.text && !p.text) p.text = tab.text;
+    if (p && tab.author && !p.author) p.author = tab.author;
+    if (p && tab.author_url) p.author_url = tab.author_url;
+    if (!p?.text && !tab.text) return res.status(422).json({ error: error?.message ?? 'No post text found.' });
+    p ??= { text: tab.text ?? null, author: tab.author ?? null, author_url: tab.author_url ?? null, posted_at: null };
+    const companies = db.prepare('SELECT id, name, linkedin FROM companies').all() as { id: number; name: string; linkedin: string | null }[];
+    const company_guess = guessPostCompany({ ...p, headline: tab.headline ?? null }, companies);
+    res.json({ ...p, author_headline: tab.headline ?? null, description: postDescription(p), company_guess });
   }),
 );
 
@@ -758,7 +809,9 @@ app.delete('/api/jobs/:id', (req, res) => {
 
 // ---------- Contacts (LinkedIn connections and referrers) ----------
 
-const CONTACT_FIELDS = ['full_name', 'company', 'position', 'linkedin_url', 'email', 'connected_on'] as const;
+const CONTACT_STATUSES = ['message_sent', 'chatting', 'referred'] as const;
+
+const CONTACT_FIELDS = ['full_name', 'company', 'position', 'linkedin_url', 'email', 'connected_on', 'status'] as const;
 
 const contactSelect = `
   SELECT c.*, (SELECT COUNT(*) FROM job_referrers r WHERE r.contact_id = c.id) AS referral_count
@@ -772,20 +825,40 @@ function normalizeContact(body: Row) {
   }
   c.full_name = String(body.full_name ?? '').trim();
   if (typeof c.linkedin_url === 'string') c.linkedin_url = c.linkedin_url.replace(/\/+$/, '');
+  if (!CONTACT_STATUSES.includes(c.status as (typeof CONTACT_STATUSES)[number])) c.status = null;
   return c;
 }
 
-/** A LinkedIn profile link → name, company, position, place; plus the contact if you already have them. */
+/**
+ * A LinkedIn profile link → name, company, position, place; plus the contact if you already have them,
+ * and the company if it's in your list. With `page` (from the extension) your logged-in tab's top card is used too.
+ */
 app.post(
   '/api/linkedin/profile',
   wrap(async (req, res) => {
+    const url = String(req.body.url ?? '');
+    const kept = req.body.page ? keptPage(String(req.body.page)) : null;
+    const tab = kept ? cleanTab<TabProfile>(kept.data) : {};
+    let p: LinkedInProfile | null = null;
+    let error: Error | null = null;
     try {
-      const p = await fetchLinkedInProfile(String(req.body.url ?? ''));
-      const existing = db.prepare('SELECT id, full_name FROM contacts WHERE lower(linkedin_url) = ?').get(p.linkedin_url) ?? null;
-      res.json({ ...p, existing });
+      p = await fetchLinkedInProfile(url);
     } catch (e) {
-      res.status(422).json({ error: (e as Error).message });
+      error = e as Error;
     }
+    if (kept) {
+      const canonical = canonicalProfileUrl(kept.url) ?? canonicalProfileUrl(url) ?? url;
+      const fromHtml = parseProfilePage(kept.html, canonical);
+      // A headline "Talent Acquisition Lead at Delta" is the position at the company: keep just the position.
+      const position = tab.headline && tab.company ? tab.headline.replace(new RegExp(`\\s+(at|@)\\s+${escapeRe(tab.company)}\\b.*$`, 'i'), '') : tab.headline;
+      p = overlay(overlay(fromHtml, { full_name: tab.name, company: tab.company, position, location: tab.location }), p);
+      p.linkedin_url = canonical;
+    }
+    if (!p?.full_name) return res.status(422).json({ error: error?.message ?? 'No name found on that profile.' });
+    const existing = db.prepare('SELECT id, full_name FROM contacts WHERE lower(linkedin_url) = ?').get(p.linkedin_url.toLowerCase()) ?? null;
+    const companies = db.prepare('SELECT id, name FROM companies').all() as { id: number; name: string }[];
+    const company_match = p.company ? (companies.find((c) => sameCompany(c.name, p!.company)) ?? null) : null;
+    res.json({ ...p, company_linkedin: canonicalCompanyUrl(tab.company_url ?? '') ?? null, existing, company_match });
   }),
 );
 
@@ -879,7 +952,6 @@ app.post('/api/contacts/import-messages', (req, res) => {
   res.json(result);
 });
 
-export const CONTACT_STATUSES = ['message_sent', 'chatting', 'referred'] as const;
 
 /** Where you stand with a person ({ status: 'chatting' | … | null }) and/or the favourite star ({ favorite: bool }). */
 app.patch('/api/contacts/:id', (req, res) => {

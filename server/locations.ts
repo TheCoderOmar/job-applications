@@ -56,9 +56,12 @@ const TAGS = /^(primary|headquarters|hq)$/i;
 /** "Cairo Governorate 4471303" → "Cairo Governorate"; "Riyadh 19248" → "Riyadh". */
 const dropPostal = (s: string) => s.replace(/\s*\b\d{4,7}(-\d{3,4})?\b\s*$/, '').trim();
 
+const REGION = /\b(governorate|province|region|state|emirate|prefecture|county)\b/i;
+
 /**
- * City from a LinkedIn-style address "street, area, City, Region 12345[, CC]":
- * the part before the region, and after a trailing " - " ("Al Olaya District - Riyadh" → "Riyadh").
+ * City from an address. Usually its last part ("…, Giza 12577" → "Giza"), but LinkedIn ends with
+ * "City, Region 12345": when the last part is a region ("Cairo Governorate") or repeats the city ("Dubai, Dubai"),
+ * the part before it is the city, after a trailing " - " ("Al Olaya District - Riyadh" → "Riyadh").
  */
 export function cityFromAddress(address: string): string | null {
   let parts = address
@@ -68,10 +71,12 @@ export function cityFromAddress(address: string): string | null {
   if (parts.length && /^[A-Z]{2}$/.test(parts[parts.length - 1])) parts = parts.slice(0, -1);
   if (parts.length && countryName(parts[parts.length - 1])) parts = parts.slice(0, -1);
   if (!parts.length) return null;
-  const pick = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-  const last = pick.split(/\s+-\s+/).pop()!.trim();
+  const tail = (s: string) => s.split(/\s+-\s+/).pop()!.trim();
+  const last = tail(parts[parts.length - 1]);
+  const prev = parts.length >= 2 ? tail(parts[parts.length - 2]) : null;
+  const pick = prev && (REGION.test(last) || prev.toLowerCase() === last.toLowerCase()) ? prev : last;
   // A street number or a floor is not a city.
-  return /\d/.test(last) ? null : last || null;
+  return /\d/.test(pick) ? null : pick || null;
 }
 
 /** Country from the end of an address: "…, AE" or "…, Egypt". */
@@ -93,7 +98,12 @@ export function parseLocationCard(lines: string[], heading?: string | null): Par
     rest = rest.slice(1);
   }
   const tags: string[] = [];
-  while (rest.length > 1 && (TAGS.test(rest[0]) || !/[\d,]/.test(rest[0]))) tags.push(rest.shift()!);
+  while (rest.length > 1 && (TAGS.test(rest[0]) || !/[\d,]/.test(rest[0]))) {
+    const line = rest.shift()!;
+    // Chips shown side by side read as one line: "Primary Headquarters".
+    if (/^(primary|headquarters|hq)(\s+(primary|headquarters|hq))+$/i.test(line)) tags.push(...line.split(/\s+/));
+    else tags.push(line);
+  }
   const address = rest.join(', ').replace(/,\s*,/g, ',').trim() || null;
   if (!address && !tags.length) return null;
   // A card with only a city name ("Cairo") is an address too.

@@ -216,7 +216,7 @@ export interface LinkedInCompany {
   founded: string | null;
   logo_url: string | null;
   locations: FoundLocation[];
-  existing: { id: number; name: string } | null;
+  existing: { id: number; name: string; location_count?: number } | null;
 }
 
 /** A company as sent to the server: its locations may be new (no id) or found on LinkedIn. */

@@ -67,16 +67,21 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     return c.id;
   }
 
-  /** A recruiter's LinkedIn post → the job description (who posted it, then the post). */
-  async function fillFromLinkedInPost(link: string, replace = false) {
+  /**
+   * A recruiter's LinkedIn post → the job description (who posted it, then the post), and the company it's
+   * probably for: the company page that posted it, one of yours it names, or the employer in the author's headline.
+   */
+  async function fillFromLinkedInPost(link: string, replace = false, page?: string) {
     setImporting(true);
     setLiStatus({ text: 'Reading the post from LinkedIn…' });
     try {
-      const p = await api.linkedInPost(link);
+      const p = await api.linkedInPost(link, page);
       // What will change, judged on the form now; applied to the latest state so nothing typed meanwhile is lost.
       const filled: string[] = [];
       if (replace || !d.description?.trim()) filled.push('description');
       if (d.apply_channel !== 'linkedin') filled.push('applied via LinkedIn');
+      const guess = !isEdit && !(initial?.company_id) && (replace || !d.company_id) ? p.company_guess : null;
+      if (guess) filled.push(guess.id ? 'company' : 'company (new)');
       setD((prev) => {
         const next = { ...prev };
         if (replace || !prev.description?.trim()) next.description = p.description;
@@ -84,9 +89,22 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         // Keep the post in the "LinkedIn post link" field, not as the job posting link.
         if (!next.apply_contact?.trim() || next.apply_contact === link) next.apply_contact = link;
         if (next.url === link) next.url = '';
+        if (guess) next.company_id = guess.id ?? NEW_COMPANY;
         return next;
       });
-      setLiStatus({ text: filled.length ? `Imported the post into the ${filled.join(' and ')}.` : 'Already filled in; nothing changed.' });
+      if (guess && !guess.id) setNewCompany({ name: guess.name, linkedin: guess.linkedin });
+      const why = guess
+        ? guess.why === 'author'
+          ? ` ${guess.name} posted it.`
+          : guess.why === 'mentioned'
+            ? ` The post mentions ${guess.name}; change the company if that's wrong.`
+            : ` ${guess.name} is from the author's headline; change it if that's wrong.`
+        : !isEdit && !d.company_id
+          ? ' Pick or type the company.'
+          : '';
+      setLiStatus({
+        text: (filled.length ? `Imported the post into the ${filled.join(', ')}.` : 'Already filled in; nothing changed.') + why,
+      });
     } catch (e) {
       setLiStatus({ text: (e as Error).message, error: true });
     } finally {
@@ -100,7 +118,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
    * A posting that's "no longer accepting applications" moves an applied job to Ghosted.
    */
   async function fillFromLinkedInJob(link: string | null | undefined, replace = false, page?: string) {
-    if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace);
+    if (link && isLinkedInPost(link)) return fillFromLinkedInPost(link, replace, page ?? (link === autoImport ? autoImportPage : undefined));
     if (!link || !isImportableJob(link)) return;
     const site = siteName(link);
     setImporting(true);

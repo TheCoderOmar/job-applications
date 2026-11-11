@@ -96,6 +96,7 @@ test('isLinkedInPost and parsePostPage', async () => {
   assert.deepEqual(parsePostPage(html), {
     text: 'Hiring a WSO2 engineer & more\nSend CV to hr@acme.com',
     author: 'Sara Hassan',
+    author_url: null,
     posted_at: '2026-10-01T10:00:00Z',
   });
 });

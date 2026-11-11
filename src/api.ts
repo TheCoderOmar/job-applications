@@ -26,11 +26,18 @@ export const api = {
   googleKey: () => request<{ set: boolean; hint: string | null }>('/api/settings/google-key'),
   setGoogleKey: (key: string) => request<{ set: boolean; hint: string | null }>('/api/settings/google-key', json('PUT', { key })),
   deleteCompany: (id: number) => request<void>(`/api/companies/${id}`, { method: 'DELETE' }),
-  linkedInPost: (url: string) =>
-    request<{ text: string | null; author: string | null; posted_at: string | null; description: string }>(
-      '/api/linkedin/post',
-      json('POST', { url }),
-    ),
+  /** `page`: the post as the extension read it from your logged-in tab. */
+  linkedInPost: (url: string, page?: string) =>
+    request<{
+      text: string | null;
+      author: string | null;
+      author_url: string | null;
+      author_headline: string | null;
+      posted_at: string | null;
+      description: string;
+      /** The company the post is probably for: one you have (id) or a new one (id null). */
+      company_guess: { id: number | null; name: string; linkedin: string | null; why: 'author' | 'mentioned' | 'headline' } | null;
+    }>('/api/linkedin/post', json('POST', { url, page })),
   /** `page`: an Indeed/Wuzzuf page the browser extension sent (those sites block the app). */
   importJob: (url: string, page?: string) =>
     request<{
@@ -48,7 +55,8 @@ export const api = {
       '/api/linkedin/job',
       json('POST', { url }),
     ),
-  linkedInCompany: (url: string) => request<LinkedInCompany>('/api/linkedin/company', json('POST', { url })),
+  /** `page`: the company page as the extension read it from your logged-in tab (its "Locations" cards). */
+  linkedInCompany: (url: string, page?: string) => request<LinkedInCompany>('/api/linkedin/company', json('POST', { url, page })),
   logoStatus: () => request<LogoStatus>('/api/logos/status'),
   fetchMissingLogos: () => request<LogoStatus>('/api/logos/fetch-missing', { method: 'POST' }),
   refreshLogo: (id: number) => request<LogoStatus>(`/api/companies/${id}/logo/refresh`, { method: 'POST' }),
@@ -122,15 +130,19 @@ export const api = {
   appliedToOpening: (id: number) => request<Job>(`/api/openings/${id}/applied`, { method: 'POST' }),
   scanStatus: () => request<ScanStatus>('/api/openings/status'),
   scanOpenings: (company_ids?: number[]) => request<ScanStatus>('/api/openings/scan', json('POST', company_ids ? { company_ids } : {})),
-  linkedInProfile: (url: string) =>
+  /** `page`: the profile as the extension read it from your logged-in tab. */
+  linkedInProfile: (url: string, page?: string) =>
     request<{
       linkedin_url: string;
       full_name: string | null;
       company: string | null;
+      /** The company's LinkedIn page, when the tab showed it. */
+      company_linkedin: string | null;
       position: string | null;
       location: string | null;
       existing: { id: number; full_name: string } | null;
-    }>('/api/linkedin/profile', json('POST', { url })),
+      company_match: { id: number; name: string } | null;
+    }>('/api/linkedin/profile', json('POST', { url, page })),
   connectionsAt: (companyId: number | string) => request<Contact[]>(`/api/companies/${companyId}/connections`),
   home: () => request<Home | null>('/api/home'),
   setHome: (data: { link?: string; lat?: number | null; lng?: number | null; label?: string }) =>

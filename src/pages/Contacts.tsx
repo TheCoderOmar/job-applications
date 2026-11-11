@@ -6,6 +6,7 @@ import Icon from '../components/Icon';
 import Modal from '../components/Modal';
 import { ContactStatusSelect, TalkedStatus, hasTalked } from '../components/Contacts';
 import StarButton from '../components/Star';
+import { createCompanyFromLinkedIn } from '../companyImport';
 import { unzipSync, strFromU8 } from 'fflate';
 
 export default function Contacts() {
@@ -318,22 +319,44 @@ export default function Contacts() {
   );
 }
 
-function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>; onSaved: () => void; onCancel: () => void }) {
+const normName = (n: string) => n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '');
+
+/**
+ * Add or edit a person. `autoImportPage` (from the browser extension's window): read their LinkedIn profile as soon as
+ * the form opens, using the page the extension sent (null = read the public profile only).
+ */
+export function ContactForm({
+  initial,
+  onSaved,
+  onCancel,
+  autoImportPage,
+}: {
+  initial: Partial<Contact>;
+  onSaved: (c: Contact) => void;
+  onCancel: () => void;
+  autoImportPage?: string | null;
+}) {
   const [d, setD] = useState<Partial<Contact>>(initial);
   const [error, setError] = useState('');
-  const [companies, setCompanies] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<string[] | null>(null);
   const [li, setLi] = useState<{ text: string; error?: boolean; existing?: { id: number; full_name: string } | null } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Their company's LinkedIn page (from the profile), used when the company is added too.
+  const [companyLink, setCompanyLink] = useState<string | null>(null);
+  const [addCompany, setAddCompany] = useState(false);
 
-  /** Fill the form from a public LinkedIn profile. The company is matched to your list when it's there. */
-  async function importProfile() {
+  /** Fill the form from a LinkedIn profile. The company is matched to your list when it's there. */
+  async function importProfile(page?: string) {
     if (!d.linkedin_url?.trim()) return;
     setImporting(true);
     setLi({ text: 'Reading the profile from LinkedIn…' });
     try {
-      const p = await api.linkedInProfile(d.linkedin_url);
-      const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '');
-      const company = p.company ? (companies.find((c) => norm(c) === norm(p.company!)) ?? p.company) : null;
+      const p = await api.linkedInProfile(d.linkedin_url, page);
+      const company = p.company_match?.name ?? (p.company ? ((companies ?? []).find((c) => normName(c) === normName(p.company!)) ?? p.company) : null);
+      setCompanyLink(p.company_linkedin);
+      // A company you don't have yet is added with the person, unless you untick it.
+      setAddCompany(!!company && !p.company_match && !(companies ?? []).some((c) => normName(c) === normName(company)));
       const filled: string[] = [];
       const next = { ...d, linkedin_url: p.linkedin_url };
       if (p.full_name) (next.full_name = p.full_name), filled.push('name');
@@ -358,16 +381,36 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
   useEffect(() => {
     api.companies().then((cs) => setCompanies(cs.map((c) => c.name)));
   }, []);
+  // From the extension: import once the company list is here (to match their company).
+  const autoImported = useRef(false);
+  useEffect(() => {
+    if (autoImportPage === undefined || autoImported.current || companies === null) return;
+    autoImported.current = true;
+    importProfile(autoImportPage ?? undefined);
+  }, [companies]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: keyof Contact, v: string) => setD((p) => ({ ...p, [k]: v }));
+  const typedCompany = d.company?.trim() ?? '';
+  const newCompany = !!typedCompany && companies !== null && !companies.some((c) => normName(c) === normName(typedCompany));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
+    setError('');
     try {
-      if (initial.id) await api.updateContact(initial.id, d);
-      else await api.createContact(d);
-      onSaved();
+      const saved = initial.id ? await api.updateContact(initial.id, d) : await api.createContact(d);
+      if (newCompany && addCompany) {
+        try {
+          await createCompanyFromLinkedIn(typedCompany, companyLink);
+        } catch (err) {
+          setError(`Saved ${saved.full_name}, but the company wasn't added: ${(err as Error).message}`);
+          return;
+        }
+      }
+      onSaved(saved);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -399,7 +442,7 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
           <button
             type="button"
             className="btn-ghost shrink-0"
-            onClick={importProfile}
+            onClick={() => importProfile()}
             disabled={importing || !/linkedin\.com\/in\//i.test(d.linkedin_url ?? '')}
           >
             <Icon name="linkedin" /> {importing ? 'Importing…' : 'Import from LinkedIn'}
@@ -422,20 +465,39 @@ function ContactForm({ initial, onSaved, onCancel }: { initial: Partial<Contact>
             onChange={(e) => set('company', e.target.value)}
           />
           <datalist id="contact-companies">
-            {companies.map((n) => (
+            {(companies ?? []).map((n) => (
               <option key={n} value={n} />
             ))}
           </datalist>
+          {newCompany && (
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-muted">
+              <input type="checkbox" className="accent-[#3b82f6]" checked={addCompany} onChange={(e) => setAddCompany(e.target.checked)} />
+              Also add {typedCompany} to my companies{companyLink ? ' (from its LinkedIn page)' : ''}
+            </label>
+          )}
         </div>
         {field('position', 'Position')}
         {field('email', 'Email', { type: 'email' })}
+        <div>
+          <label className="label">Status</label>
+          <select className="input" value={d.status ?? ''} onChange={(e) => setD((p) => ({ ...p, status: (e.target.value || null) as ContactStatus | null }))}>
+            <option value="">No status</option>
+            {(Object.keys(CONTACT_STATUS) as ContactStatus[]).map((k) => (
+              <option key={k} value={k}>
+                {CONTACT_STATUS[k].label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" className="btn-ghost" onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn-primary">{initial.id ? 'Save changes' : 'Add person'}</button>
+        <button className="btn-primary" disabled={saving || importing}>
+          {saving ? 'Saving…' : initial.id ? 'Save changes' : 'Add person'}
+        </button>
       </div>
     </form>
   );

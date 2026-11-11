@@ -29,7 +29,9 @@ test('cityFromAddress takes the part before the region', () => {
   assert.equal(cityFromAddress('2506 Mazaya Business Avenue BB2, Jumeirah Lakes Towers (JLT), Dubai, Dubai 346060'), 'Dubai');
   assert.equal(cityFromAddress('King Fahd Road, 13th Floor - Ebdaa Tower, Al Olaya District - Riyadh, Riyadh 19248'), 'Riyadh');
   assert.equal(cityFromAddress('17 Markez Al Malomat, Sheraton Al Mata, El Nozha, Cairo, Cairo Governorate 4471303'), 'Cairo');
-  assert.equal(cityFromAddress('Smart Village, Giza, EG'), 'Smart Village');
+  assert.equal(cityFromAddress('Smart Village, Giza, EG'), 'Giza');
+  assert.equal(cityFromAddress('Building B12, Smart Village, Cairo-Alexandria Desert Road, Giza 12577'), 'Giza');
+  assert.equal(cityFromAddress('Dubai Internet City, Building 9, Dubai'), 'Dubai');
   assert.equal(cityFromAddress('Cairo'), 'Cairo');
 });
 
@@ -48,6 +50,12 @@ test('parseLocationCard reads country, tags and address', () => {
   assert.equal(ksa.is_primary, false);
   assert.equal(eg.country, 'Egypt');
   assert.equal(eg.city, 'Cairo');
+});
+
+test('parseLocationCard: chips read as one line', () => {
+  const l = parseLocationCard(['United Arab Emirates', 'Primary Headquarters', '2506 Mazaya Business Avenue BB2, Dubai, Dubai 346060'])!;
+  assert.equal(l.label, 'Primary · Headquarters');
+  assert.equal(l.is_primary, true);
 });
 
 test('parseLocationCard: country from a heading, a city-only card, nothing', () => {

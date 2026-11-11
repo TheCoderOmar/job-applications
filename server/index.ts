@@ -76,7 +76,8 @@ async function normalizeCompany(body: Row) {
 }
 
 const companySelect = `
-  SELECT c.*, COUNT(j.id) AS job_count,
+  SELECT c.*, COUNT(j.id) AS job_count, COUNT(j.applied_date) AS applied_count,
+         (SELECT COUNT(*) FROM openings o WHERE o.company_id = c.id AND o.closed_at IS NULL AND o.hidden = 0) AS opening_count,
          (SELECT CASE WHEN l.status = 'found' THEN l.fetched_at END FROM company_logos l WHERE l.company_id = c.id) AS logo_at
   FROM companies c LEFT JOIN jobs j ON j.company_id = c.id`;
 

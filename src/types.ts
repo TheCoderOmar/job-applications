@@ -83,6 +83,10 @@ export interface Company {
   maps_link: string | null;
   created_at: string;
   job_count: number;
+  /** Applications you sent there (past the first stage). */
+  applied_count: number;
+  /** Open positions found there (not hidden or closed). */
+  opening_count: number;
   locations: CompanyLocation[];
 }
 

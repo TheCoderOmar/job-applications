@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import type { Company, LogoStatus } from '../types';
+import type { Company, LogoStatus, ScanStatus } from '../types';
 import type { RefreshStatus } from '../api';
 import CompanyLogo from '../components/CompanyLogo';
 import Icon from '../components/Icon';
@@ -22,6 +22,8 @@ export default function Companies() {
 
   const [logos, setLogos] = useState<LogoStatus | null>(null);
   const [refresh, setRefresh] = useState<RefreshStatus | null>(null);
+  const [scan, setScan] = useState<ScanStatus | null>(null);
+  const navigate = useNavigate();
   const [refreshAsked, setRefreshAsked] = useState(false);
 
   const load = () => api.companies().then(setCompanies);
@@ -29,7 +31,18 @@ export default function Companies() {
     load();
     api.logoStatus().then(setLogos);
     api.refreshStatus().then(setRefresh);
+    api.scanStatus().then(setScan);
   }, []);
+
+  // While jobs are being looked up, follow along so each card's openings count goes up as they're found.
+  useEffect(() => {
+    if (!scan?.running) return;
+    const t = setTimeout(async () => {
+      setScan(await api.scanStatus());
+      load();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [scan]);
 
   // While companies are being refreshed from LinkedIn, follow along and show new offices as they come in.
   useEffect(() => {
@@ -80,6 +93,17 @@ export default function Companies() {
           {companies.length > 0 && (
             <button
               className="btn-ghost"
+              disabled={!!scan?.running}
+              onClick={() => api.scanOpenings().then(setScan)}
+              title="Looks up every company's open jobs on LinkedIn (and its careers page) and adds them to Openings"
+            >
+              <Icon name="briefcase" />
+              {scan?.running ? `Finding jobs… ${scan.done} of ${scan.total}` : 'Find all jobs on LinkedIn'}
+            </button>
+          )}
+          {companies.length > 0 && (
+            <button
+              className="btn-ghost"
               disabled={!!refresh?.running}
               onClick={async () => {
                 setRefreshAsked(true);
@@ -102,6 +126,19 @@ export default function Companies() {
           </button>
         </div>
       </header>
+
+      {scan && (scan.running || scan.done > 0) && (
+        <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted">
+          <span>
+            {scan.running
+              ? `Looking for jobs at ${scan.current ?? 'your companies'} (${scan.done} of ${scan.total}). ${scan.found} found so far; you can keep using the app.`
+              : `Checked ${scan.done} companies and found ${scan.found} job${scan.found === 1 ? '' : 's'}.`}
+          </span>
+          <Link to="/openings" className="font-medium text-brand-light hover:underline">
+            See openings →
+          </Link>
+        </div>
+      )}
 
       {refresh && (refresh.running || refreshAsked || refresh.done > 0) && (
         <div className={`card px-4 py-3 text-sm ${refresh.error ? 'border-red-500/40 text-red-300' : 'text-muted'}`}>
@@ -148,7 +185,7 @@ export default function Companies() {
           {companies.length === 0 ? 'No companies yet. Add your first one.' : 'No companies match.'}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((c) => (
             <Link key={c.id} to={`/companies/${c.id}`} className="card card-hover flex flex-col p-5">
               <div className="flex items-start justify-between gap-3">
@@ -168,7 +205,7 @@ export default function Companies() {
                   ) : null}
                 </div>
               </div>
-              <div className="mt-4 flex items-center justify-between text-sm">
+              <div className="mt-4 flex flex-wrap items-center sm:flex-nowrap justify-between gap-x-3 gap-y-1 text-sm">
                 <span className="flex min-w-0 items-center gap-1.5 text-muted">
                   <Icon name="pin" className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">
@@ -190,9 +227,22 @@ export default function Companies() {
                       <Icon name="linkedin" />
                     </button>
                   )}
-                  <span>
-                    <span className="font-semibold text-fg">{c.job_count}</span> {c.job_count === 1 ? 'job' : 'jobs'}
+                  <span title={`${c.job_count} logged in total`}>
+                    <span className="font-semibold text-fg">{c.applied_count}</span> applied
                   </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      navigate(`/openings?company=${c.id}`);
+                    }}
+                    className={c.opening_count ? 'hover:text-brand-light' : ''}
+                    title={c.opening_count ? `See ${c.name}'s open jobs` : 'No open jobs found yet'}
+                  >
+                    <span className={`font-semibold ${c.opening_count ? 'text-emerald-300' : 'text-fg'}`}>{c.opening_count}</span>{' '}
+                    {c.opening_count === 1 ? 'opening' : 'openings'}
+                  </button>
                 </span>
               </div>
             </Link>

@@ -21,6 +21,10 @@ export interface UpdateInfo {
   behind: number;
   commits: string[];
   needs_restart: boolean;
+  /** When GitHub was last checked (null until the first check worked). */
+  checked_at: string | null;
+  /** Why the last check didn't work (no network, no git…), or null. */
+  error: string | null;
   /** Why "Update now" can't run here (null when it can). */
   blocked: string | null;
 }
@@ -46,6 +50,8 @@ export const api = {
   addLocations: (id: number, locations: FoundLocation[]) =>
     request<{ added: number; company: Company }>(`/api/companies/${id}/locations`, json('POST', { locations })),
   updateStatus: () => request<UpdateInfo>('/api/update'),
+  /** Asks GitHub right now instead of using the last check. */
+  checkForUpdates: () => request<UpdateInfo>('/api/update?refresh=1'),
   applyUpdate: () => request<{ updated: number; needs_restart: boolean }>('/api/update', { method: 'POST' }),
   refreshStatus: () => request<RefreshStatus>('/api/refresh-status'),
   refreshCompanies: (ids?: number[]) => request<RefreshStatus>('/api/refresh-companies', json('POST', ids ? { ids } : {})),

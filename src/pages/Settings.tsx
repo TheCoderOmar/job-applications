@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, type UpdateInfo } from '../api';
 import type { Home, Stage, StageKind } from '../types';
 import Icon from '../components/Icon';
+import { UPDATE_EVENT } from '../components/UpdateBanner';
 
 const KIND_LABEL: Record<StageKind, string> = {
   active: 'Open',
@@ -217,6 +218,7 @@ export default function Settings() {
         </form>
       </section>
 
+      <UpdatesSection />
       <HomeSection />
       <MapSearchSection />
       <StarterCompaniesSection />
@@ -390,6 +392,63 @@ function MapSearchSection() {
       {!status && (
         <p className="mt-2 text-xs text-muted">{state?.set ? `Using Google (key ${state.hint}).` : 'Using OpenStreetMap.'}</p>
       )}
+    </section>
+  );
+}
+
+/** "Check for updates": asks GitHub now. The app also checks by itself when it starts and every 6 hours. */
+function UpdatesSection() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.updateStatus().then(setInfo, () => {});
+  }, []);
+
+  async function check() {
+    setBusy(true);
+    setFailed(null);
+    try {
+      const r = await api.checkForUpdates();
+      setInfo(r);
+      window.dispatchEvent(new CustomEvent(UPDATE_EVENT, { detail: r }));
+    } catch (err) {
+      setFailed((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let result: { text: string; tone: 'ok' | 'new' | 'warn' } | null = null;
+  if (failed) result = { text: `Could not check: ${failed}`, tone: 'warn' };
+  else if (info && !info.supported) result = { text: 'This copy was not installed with git clone, so it cannot check for updates.', tone: 'warn' };
+  else if (info?.error) result = { text: "Could not reach GitHub. Check your internet connection and try again.", tone: 'warn' };
+  else if (info?.needs_restart) result = { text: 'An update is waiting for a restart: open the app again from its desktop icon.', tone: 'new' };
+  else if (info?.behind)
+    result = { text: `${info.behind} new change${info.behind === 1 ? '' : 's'} available. Use "Update now" on the card at the bottom right.`, tone: 'new' };
+  else if (info?.checked_at) result = { text: 'You have the latest version.', tone: 'ok' };
+
+  const checked = info?.checked_at
+    ? new Date(info.checked_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : 'not yet';
+
+  return (
+    <section className="card p-5">
+      <h2 className="font-semibold">Updates</h2>
+      <p className="mt-0.5 text-xs text-muted">
+        The app checks GitHub for a newer version when it starts and every 6 hours, and shows a card when there is one. Last checked: {checked}.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button className="btn-ghost" onClick={check} disabled={busy}>
+          <Icon name="refresh" /> {busy ? 'Checking…' : 'Check for updates'}
+        </button>
+        {result && !busy && (
+          <span className={`text-xs ${result.tone === 'ok' ? 'text-emerald-300' : result.tone === 'new' ? 'text-brand-light' : 'text-amber-300'}`}>
+            {result.text}
+          </span>
+        )}
+      </div>
     </section>
   );
 }

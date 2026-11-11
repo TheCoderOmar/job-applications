@@ -3,6 +3,8 @@ import { api, type UpdateInfo } from '../api';
 import Icon from './Icon';
 
 const DISMISS_KEY = 'update-dismissed';
+/** Sent by "Check for updates" in Settings, so this card shows the new result right away. */
+export const UPDATE_EVENT = 'update-status';
 
 /**
  * "Update available" card, bottom right, when GitHub has a newer version. "Update now" pulls it; the app then
@@ -26,7 +28,21 @@ export default function UpdateBanner() {
     const load = () => api.updateStatus().then(setInfo, () => {});
     load();
     const t = setInterval(load, 30 * 60 * 1000);
-    return () => clearInterval(t);
+    // A check you asked for shows its result even if you pressed "Later" before.
+    const onCheck = (e: Event) => {
+      setInfo((e as CustomEvent<UpdateInfo>).detail);
+      setDismissed(null);
+      try {
+        sessionStorage.removeItem(DISMISS_KEY);
+      } catch {
+        /* storage unavailable */
+      }
+    };
+    window.addEventListener(UPDATE_EVENT, onCheck);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(UPDATE_EVENT, onCheck);
+    };
   }, []);
 
   /** Waits for the restarted server, then reloads so the new code runs. */

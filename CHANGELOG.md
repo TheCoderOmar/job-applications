@@ -2,6 +2,20 @@
 
 All notable changes to Job Applications.
 
+## [1.1.0] - 2026-11-11
+
+### Added
+- Getting started guide for new users (`docs/getting-started.md`), linked from the README
+- Interview steps can be dated in the future (scheduled interviews), marked "Upcoming"
+
+### Changed
+- The Applications list includes jobs you haven't applied to yet by default
+- Saved jobs stay visible after saving; a Saved job has no applied date, and giving it one moves it to Applied
+
+### Fixed
+- Fill from LinkedIn works again for company pages: LinkedIn started answering with a 403 "Just a moment..." page, so company pages are now read the same way as profiles and posts
+- A company link LinkedIn doesn't know now says to check the name after /company/
+
 ## [1.0.0] - 2026-11-03
 
 First release. Everything built so far, oldest first:

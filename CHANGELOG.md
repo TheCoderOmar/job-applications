@@ -2,6 +2,22 @@
 
 All notable changes to Job Applications.
 
+## [1.2.0] - 2026-11-11
+
+### Added
+- Companies can have several offices: imported from LinkedIn's Locations, edited as a list, each put on the map from its address (OpenStreetMap, or Google with an API key in Settings), with a Google Maps link to check or correct it
+- Map: every office has a pin; clicking one highlights all of that company's offices and fades the rest
+- Browser extension 1.3.0 knows the LinkedIn page you're on: a company page imports the company with its offices, a profile imports the contact (and their company), a post imports a job with the company it's for
+- Contacts: a status for each person (Message sent, Chatting, Referred), a status filter, and a Favourites tab
+- Update check: the app looks for a new version on GitHub and updates itself with one click
+- `setup.bat` installs everything and puts a Job Tracker icon on the desktop; `start.bat` is what the icon runs
+- A new install starts with 177 companies (with offices and logos); Settings can add them back
+
+### Fixed
+- Importing a job for a company that isn't in your list works, including on a brand-new install with no companies (the form used to say "Add a company first" and the extension did nothing); you can also type a new company in the form
+- A job with no company found is no longer filed under the first company in the list
+- A logo fetched for a company deleted meanwhile no longer crashes the server
+
 ## [1.1.0] - 2026-11-11
 
 ### Added

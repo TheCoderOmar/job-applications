@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Company, LogoStatus } from '../types';
+import type { RefreshStatus } from '../api';
 import CompanyLogo from '../components/CompanyLogo';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
@@ -20,12 +21,27 @@ export default function Companies() {
   const [editing, setEditing] = useState<Company | 'new' | null>(params.get('new') ? 'new' : null);
 
   const [logos, setLogos] = useState<LogoStatus | null>(null);
+  const [refresh, setRefresh] = useState<RefreshStatus | null>(null);
+  const [refreshAsked, setRefreshAsked] = useState(false);
 
   const load = () => api.companies().then(setCompanies);
   useEffect(() => {
     load();
     api.logoStatus().then(setLogos);
+    api.refreshStatus().then(setRefresh);
   }, []);
+
+  // While companies are being refreshed from LinkedIn, follow along and show new offices as they come in.
+  useEffect(() => {
+    if (!refresh?.running) return;
+    const t = setTimeout(async () => {
+      const next = await api.refreshStatus();
+      setRefresh(next);
+      load();
+      if (!next.running) api.logoStatus().then(setLogos);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [refresh]);
 
   // While logos are being fetched, poll and refresh the cards so they appear as they arrive.
   useEffect(() => {
@@ -61,6 +77,20 @@ export default function Companies() {
           <p className="mt-1 text-sm text-muted">{companies.length} companies tracked</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {companies.length > 0 && (
+            <button
+              className="btn-ghost"
+              disabled={!!refresh?.running}
+              onClick={async () => {
+                setRefreshAsked(true);
+                setRefresh(await api.refreshCompanies());
+              }}
+              title="Reads every company's LinkedIn page again: fills in details that are still empty and adds all the offices it lists. What you typed is kept."
+            >
+              <Icon name="refresh" />
+              {refresh?.running ? `Refreshing from LinkedIn… ${refresh.done} of ${refresh.total}` : 'Refresh all from LinkedIn'}
+            </button>
+          )}
           {logos && (logos.running || logos.missing > 0) && (
             <button className="btn-ghost" disabled={logos.running} onClick={() => api.fetchMissingLogos().then(setLogos)}>
               <Icon name="download" />
@@ -72,6 +102,26 @@ export default function Companies() {
           </button>
         </div>
       </header>
+
+      {refresh && (refresh.running || refreshAsked || refresh.done > 0) && (
+        <div className={`card px-4 py-3 text-sm ${refresh.error ? 'border-red-500/40 text-red-300' : 'text-muted'}`}>
+          {refresh.running ? (
+            <>
+              Reading {refresh.current ?? 'companies'} from LinkedIn ({refresh.done} of {refresh.total}). So far {refresh.updated} updated,{' '}
+              {refresh.locations_added} new location{refresh.locations_added === 1 ? '' : 's'}. You can keep using the app; it takes a few seconds per
+              company.
+            </>
+          ) : (
+            <>
+              {refresh.error ? `${refresh.error} ` : 'Done. '}
+              {refresh.updated} of {refresh.done} companies updated, {refresh.locations_added} new location
+              {refresh.locations_added === 1 ? '' : 's'} added (they're put on the map in the background).
+              {refresh.no_page ? ` ${refresh.no_page} have no LinkedIn page we could find.` : ''}
+              {refresh.failed && !refresh.error ? ` ${refresh.failed} could not be read.` : ''}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-[220px] flex-1">

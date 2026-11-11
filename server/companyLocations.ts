@@ -183,7 +183,8 @@ const googleKey = () =>
 
 /** Looks up every location that has a street address but no pin yet, one at a time (a bare city stays unpinned). */
 export function queueGeocoding() {
-  if (geocodeState.running) return;
+  // Tests set JOBS_NO_GEOCODE so nothing is looked up online.
+  if (geocodeState.running || process.env.JOBS_NO_GEOCODE) return;
   geocodeState.running = true;
   geocodeState.error = null;
   void (async () => {

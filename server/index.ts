@@ -7,6 +7,7 @@ import {
 import { mapsSearchLink } from './geocode.js';
 import { loadDefaultCompanies, loadDefaultsOnFirstRun, readDefaults } from './defaults.js';
 import { applyUpdate, blockedReason, checkForUpdate, type UpdateStatus } from './update.js';
+import { refreshCompanies, refreshState } from './refreshCompanies.js';
 import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
 import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
@@ -294,6 +295,35 @@ app.post('/api/default-companies', (_req, res) => {
   const added = loadDefaultCompanies();
   queueLogos(missingLogoIds());
   res.json({ added: added.length });
+});
+
+/**
+ * Refresh from LinkedIn: every company (or `ids`) re-read from its LinkedIn page in the background;
+ * empty details are filled and offices it doesn't have yet are added (and pinned). Nothing you typed is overwritten.
+ */
+app.get('/api/refresh-status', (_req, res) => res.json(refreshState));
+app.post('/api/refresh-companies', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(Number).filter(Boolean) : undefined;
+  const exact = (x: string, y: string) => {
+    const [p, q] = [normalizeName(x), normalizeName(y)];
+    return !!p && (p === q || p.replace(/ /g, '') === q.replace(/ /g, ''));
+  };
+  refreshCompanies(
+    {
+      fetchCompany: fetchLinkedInCompany,
+      // A LinkedIn search link or no link: find the real page by exact name, like the openings scan does.
+      findPage: (name, country) => findLinkedInCompanyPage(name, country, exact),
+      onNewLink: (id) => {
+        const logo = db.prepare(`SELECT status FROM company_logos WHERE company_id = ?`).get(id) as { status: string } | undefined;
+        if (!logo || logo.status === 'none') {
+          db.prepare('DELETE FROM company_logos WHERE company_id = ?').run(id);
+          queueLogos([id]);
+        }
+      },
+    },
+    ids,
+  );
+  res.json(refreshState);
 });
 
 /** Pinning progress, and a Google Maps search link for checking a location by hand. */

@@ -2,6 +2,19 @@ import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, 
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
+/** Progress of "Refresh from LinkedIn" over your companies. */
+export interface RefreshStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  updated: number;
+  locations_added: number;
+  no_page: number;
+  failed: number;
+  current: string | null;
+  error: string | null;
+}
+
 /** Is there a newer version on GitHub, and can it be applied here? */
 export interface UpdateInfo {
   supported: boolean;
@@ -34,6 +47,8 @@ export const api = {
     request<{ added: number; company: Company }>(`/api/companies/${id}/locations`, json('POST', { locations })),
   updateStatus: () => request<UpdateInfo>('/api/update'),
   applyUpdate: () => request<{ updated: number; needs_restart: boolean }>('/api/update', { method: 'POST' }),
+  refreshStatus: () => request<RefreshStatus>('/api/refresh-status'),
+  refreshCompanies: (ids?: number[]) => request<RefreshStatus>('/api/refresh-companies', json('POST', ids ? { ids } : {})),
   defaultCompanies: () => request<{ total: number; missing: number }>('/api/default-companies'),
   loadDefaultCompanies: () => request<{ added: number }>('/api/default-companies', { method: 'POST' }),
   geocodeStatus: () => request<{ running: boolean; pending: number; done: number; failed: number; error: string | null }>('/api/geocode/status'),

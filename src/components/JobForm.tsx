@@ -45,6 +45,11 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   const [newCompany, setNewCompany] = useState<{ name: string; linkedin: string | null } | null>(null);
   async function createNewCompany(): Promise<number> {
     const nc = newCompany!;
+    const name = nc.name.trim();
+    if (!name) throw new Error('Type the company name, or pick one from the list.');
+    // Typed a company you already have: use it rather than making a copy.
+    const known = companies.find((c) => sameName(c.name, name));
+    if (known) return known.id;
     let details: Partial<Company> = {};
     if (nc.linkedin) {
       try {
@@ -56,7 +61,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         details = { linkedin: nc.linkedin };
       }
     }
-    const c = await api.createCompany({ ...details, name: nc.name });
+    const c = await api.createCompany({ ...details, name });
     setCompanies((prev) => [...prev, c].sort((a, b) => a.name.localeCompare(b.name)));
     setNewCompany(null);
     return c.id;
@@ -160,7 +165,8 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   // From the browser extension: once companies and stages are loaded (so the company can be matched), import once.
   const autoImported = useRef(false);
   useEffect(() => {
-    if (!autoImport || autoImported.current || !companies.length || !stages.length) return;
+    // Companies arrive with the stages, so an empty company list (a fresh install) still imports.
+    if (!autoImport || autoImported.current || !stages.length) return;
     autoImported.current = true;
     if (isImportableJob(autoImport) || isLinkedInPost(autoImport)) fillFromLinkedInJob(autoImport, true, autoImportPage);
   }, [autoImport, companies, stages]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,7 +178,8 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       setCvs(cv);
       setD((prev) => ({
         ...prev,
-        company_id: prev.company_id ?? c[0]?.id,
+        // No silent default: an imported company is matched below, otherwise you pick or type one.
+        company_id: prev.company_id,
         stage_id: prev.stage_id ?? s[0]?.id,
         // New applications start on the default CV; a saved one keeps what it has, even none.
         cv_id: initial?.id ? prev.cv_id : (prev.cv_id ?? cv.find((x) => x.is_default)?.id ?? null),
@@ -222,17 +229,6 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     }
   }
 
-  if (companies.length === 0 && stages.length > 0) {
-    return (
-      <div className="space-y-4 text-sm text-muted">
-        <p>Add a company first, then you can add jobs to it.</p>
-        <button className="btn-ghost" onClick={onCancel}>
-          Close
-        </button>
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="rounded-lg border border-brand/30 bg-brand/5 p-4">
@@ -268,17 +264,35 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
           <label className="label">Company *</label>
           <select
             className="input"
+            required
             value={d.company_id ?? ''}
-            onChange={(e) => set('company_id', Number(e.target.value))}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              if (id === NEW_COMPANY && !newCompany) setNewCompany({ name: '', linkedin: null });
+              set('company_id', e.target.value ? id : null);
+            }}
             disabled={!!initial?.company_id && !isEdit}
           >
-            {newCompany && <option value={NEW_COMPANY}>{newCompany.name} (new)</option>}
+            <option value="" disabled>
+              Pick a company…
+            </option>
+            {!isEdit && <option value={NEW_COMPANY}>{newCompany?.name.trim() ? `${newCompany.name.trim()} (new)` : '+ New company…'}</option>}
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          {d.company_id === NEW_COMPANY && newCompany && (
+            <input
+              className="input mt-2"
+              required
+              placeholder="Company name"
+              aria-label="New company name"
+              value={newCompany.name}
+              onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })}
+            />
+          )}
         </div>
         <div>
           <label className="label">Stage</label>

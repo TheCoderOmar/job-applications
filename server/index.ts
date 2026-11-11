@@ -217,6 +217,13 @@ app.put(
   }),
 );
 
+/** A company by name (any case), created with just the name when it isn't there yet. */
+function findOrCreateCompany(name: string): number {
+  const found = db.prepare('SELECT id FROM companies WHERE lower(name) = lower(?)').get(name) as { id: number } | undefined;
+  if (found) return found.id;
+  return Number(db.prepare('INSERT INTO companies (name) VALUES (?)').run(name).lastInsertRowid);
+}
+
 app.delete('/api/companies/:id', (req, res) => {
   db.prepare('DELETE FROM companies WHERE id = ?').run(req.params.id);
   res.status(204).end();
@@ -552,6 +559,9 @@ app.get('/api/jobs/:id', (req, res) => {
 app.post('/api/jobs', (req, res) => {
   const j = normalizeJob(req.body);
   if (!j.title) return res.status(400).json({ error: 'Title is required' });
+  // A company given by name only (an import for a company not in the list yet): use it or create it.
+  const companyName = String(req.body.company_name ?? '').trim();
+  if (!j.company_id && companyName) j.company_id = findOrCreateCompany(companyName);
   if (!j.company_id) return res.status(400).json({ error: 'Company is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });

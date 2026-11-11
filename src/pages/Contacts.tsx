@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import type { Contact } from '../types';
+import { CONTACT_STATUS, type Contact, type ContactStatus } from '../types';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
-import { TalkedStatus, hasTalked } from '../components/Contacts';
+import { ContactStatusSelect, TalkedStatus, hasTalked } from '../components/Contacts';
+import StarButton from '../components/Star';
 import { unzipSync, strFromU8 } from 'fflate';
 
 export default function Contacts() {
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [q, setQ] = useState('');
   const [talkedOnly, setTalkedOnly] = useState(false);
+  // Tab (All / Favourites, kept in ?tab=) and status filter ('' = any, 'none' = no status yet).
+  const [tab, setTab] = useState<'all' | 'favorites'>(() =>
+    new URLSearchParams(location.search).get('tab') === 'favorites' ? 'favorites' : 'all',
+  );
+  const [statusFilter, setStatusFilter] = useState<'' | 'none' | ContactStatus>('');
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -26,10 +32,32 @@ export default function Contacts() {
     return (contacts ?? []).filter(
       (c) =>
         (!talkedOnly || hasTalked(c)) &&
+        (tab === 'all' || !!c.favorite) &&
+        (!statusFilter || (statusFilter === 'none' ? !c.status : c.status === statusFilter)) &&
         (!needle || [c.full_name, c.company, c.position].some((v) => v?.toLowerCase().includes(needle))),
     );
-  }, [contacts, q, talkedOnly]);
+  }, [contacts, q, talkedOnly, tab, statusFilter]);
   const talkedCount = contacts?.filter(hasTalked).length ?? 0;
+  const favoriteCount = contacts?.filter((c) => c.favorite).length ?? 0;
+  const replace = (u: Contact) => setContacts((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)));
+
+  function switchTab(t: 'all' | 'favorites') {
+    setTab(t);
+    const url = new URL(location.href);
+    if (t === 'favorites') url.searchParams.set('tab', 'favorites');
+    else url.searchParams.delete('tab');
+    history.replaceState(history.state, '', url);
+  }
+
+  async function toggleFavorite(c: Contact) {
+    replace({ ...c, favorite: c.favorite ? 0 : 1 });
+    try {
+      replace(await api.patchContact(c.id, { favorite: !c.favorite }));
+    } catch (e) {
+      replace(c);
+      setMessage({ text: `Couldn't save the star: ${(e as Error).message}`, error: true });
+    }
+  }
 
   /**
    * Takes LinkedIn's export .zip (or Connections.csv / messages.csv picked directly).
@@ -139,6 +167,34 @@ export default function Contacts() {
       </details>
 
       {contacts && contacts.length > 0 && (
+        <div role="tablist" aria-label="Contacts" className="flex gap-1 border-b border-line">
+          {(
+            [
+              ['all', `All (${contacts.length})`],
+              ['favorites', `Favourites (${favoriteCount})`],
+            ] as const
+          ).map(([t, label]) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => switchTab(t)}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
+                tab === t ? 'border-brand text-fg' : 'border-transparent text-muted hover:text-fg'
+              }`}
+            >
+              {t === 'favorites' && (
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-300" fill="currentColor" aria-hidden>
+                  <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9l-5.25 2.7 1-5.8L3.5 9.7l5.9-.9L12 3.5z" />
+                </svg>
+              )}
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {contacts && contacts.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] max-w-md flex-1">
             <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -151,6 +207,20 @@ export default function Contacts() {
           >
             Talked to ({talkedCount})
           </button>
+          <select
+            aria-label="Filter by status"
+            className="input w-auto py-1.5 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          >
+            <option value="">Any status</option>
+            {(Object.keys(CONTACT_STATUS) as ContactStatus[]).map((k) => (
+              <option key={k} value={k}>
+                {CONTACT_STATUS[k].label} ({contacts.filter((c) => c.status === k).length})
+              </option>
+            ))}
+            <option value="none">No status</option>
+          </select>
           <span className="text-sm text-muted">{shown.length} shown</span>
         </div>
       )}
@@ -164,9 +234,11 @@ export default function Contacts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
+                <th className="w-8 py-3 pl-3" aria-label="Favourite" />
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Company</th>
                 <th className="hidden px-4 py-3 font-medium md:table-cell">Position</th>
+                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Talked</th>
                 <th className="px-4 py-3 font-medium">Referrals</th>
                 <th className="px-4 py-3" />
@@ -175,6 +247,14 @@ export default function Contacts() {
             <tbody className="divide-y divide-line">
               {shown.slice(0, 500).map((c) => (
                 <tr key={c.id} className="transition hover:bg-raised/60">
+                  <td className="py-2.5 pl-3">
+                    <StarButton
+                      starred={!!c.favorite}
+                      onToggle={() => toggleFavorite(c)}
+                      label={`Add ${c.full_name} to favourites`}
+                      onLabel="Favourite"
+                    />
+                  </td>
                   <td className="px-4 py-2.5 font-medium">
                     {c.linkedin_url ? (
                       <a href={c.linkedin_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-brand-light">
@@ -187,7 +267,10 @@ export default function Contacts() {
                   <td className="px-4 py-2.5 text-muted">{c.company ?? '—'}</td>
                   <td className="hidden px-4 py-2.5 text-muted md:table-cell">{c.position ?? '—'}</td>
                   <td className="whitespace-nowrap px-4 py-2.5">
-                    <TalkedStatus c={c} onChange={(u) => setContacts((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)))} />
+                    <ContactStatusSelect c={c} onChange={replace} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    <TalkedStatus c={c} onChange={replace} />
                   </td>
                   <td className="px-4 py-2.5 tabular-nums">
                     {c.referral_count ? (
@@ -211,7 +294,11 @@ export default function Contacts() {
             </tbody>
           </table>
           {shown.length > 500 && <p className="px-4 py-3 text-xs text-muted">Showing 500 of {shown.length}. Search to narrow down.</p>}
-          {shown.length === 0 && <p className="px-4 py-6 text-center text-muted">No one matches.</p>}
+          {shown.length === 0 && (
+            <p className="px-4 py-6 text-center text-muted">
+              {tab === 'favorites' && !favoriteCount ? 'No favourites yet. Click the star next to a name to add one.' : 'No one matches.'}
+            </p>
+          )}
         </div>
       )}
 

@@ -229,6 +229,14 @@ db.exec(`
 if (!(db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).some((c) => c.name === 'talked_at'))
   db.exec(`ALTER TABLE contacts ADD COLUMN talked_at TEXT`);
 
+// Where you stand with a person (none = NULL), and people starred as favourites.
+{
+  const cols = new Set((db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has('status'))
+    db.exec(`ALTER TABLE contacts ADD COLUMN status TEXT CHECK (status IN ('message_sent','chatting','referred'))`);
+  if (!cols.has('favorite')) db.exec(`ALTER TABLE contacts ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`);
+}
+
 /** Adds a "Shortlisted" stage right after "Technical interview" (once; skipped if you already have one). */
 function addShortlistedStage() {
   if (db.prepare(`SELECT 1 FROM settings WHERE key = 'shortlisted_stage_added'`).get()) return;

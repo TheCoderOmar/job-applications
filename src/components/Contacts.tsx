@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import type { Contact } from '../types';
+import { CONTACT_STATUS, type Contact, type ContactStatus } from '../types';
 import Icon from './Icon';
 import { dmy } from '../dates';
 
@@ -84,6 +84,54 @@ export const byTalked = (a: Contact, b: Contact) =>
   b.messages_from_them - a.messages_from_them ||
   b.messages - a.messages ||
   a.full_name.localeCompare(b.full_name);
+
+const STATUS_KEYS = Object.keys(CONTACT_STATUS) as ContactStatus[];
+
+/**
+ * Where you stand with a person: no status, Message sent, Chatting or Referred. Saves straight away;
+ * every row's box is as wide as the longest label (same invisible-copies trick as StageSelect).
+ */
+export function ContactStatusSelect({ c, onChange }: { c: Contact; onChange: (c: Contact) => void }) {
+  const [error, setError] = useState(false);
+  const current = c.status ? CONTACT_STATUS[c.status] : null;
+  async function pick(v: string) {
+    const status = (v || null) as ContactStatus | null;
+    onChange({ ...c, status }); // show it at once; put it back if saving fails
+    try {
+      onChange(await api.patchContact(c.id, { status }));
+      setError(false);
+    } catch {
+      onChange(c);
+      setError(true);
+    }
+  }
+  return (
+    <span className="inline-grid" title={error ? 'Not saved. Try again.' : undefined}>
+      {['No status', ...STATUS_KEYS.map((k) => CONTACT_STATUS[k].label)].map((l) => (
+        <span key={l} aria-hidden className="input invisible col-start-1 row-start-1 h-0 whitespace-nowrap border-y-0 py-0 pr-10 text-xs font-medium">
+          {l}
+        </span>
+      ))}
+      <select
+        aria-label={`Status with ${c.full_name}`}
+        className={`input col-start-1 row-start-1 cursor-pointer whitespace-nowrap py-1 text-xs font-medium ${current ? '' : 'text-muted'} ${error ? 'border-red-500/60' : ''}`}
+        style={current ? { color: current.color, borderColor: current.color + '66', background: current.color + '14' } : undefined}
+        value={c.status ?? ''}
+        onChange={(e) => pick(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <option value="" style={{ color: '#e5edff', background: '#0b1220' }}>
+          No status
+        </option>
+        {STATUS_KEYS.map((k) => (
+          <option key={k} value={k} style={{ color: '#e5edff', background: '#0b1220' }}>
+            {CONTACT_STATUS[k].label}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
 
 export function ContactLine({ c }: { c: Contact }) {
   return (
@@ -293,8 +341,9 @@ export function ConnectionsPanel({
                   )}
                 </div>
                 {c.position && <div className="truncate text-xs text-muted">{c.position}</div>}
-                <div className="mt-1">
+                <div className="mt-1 flex flex-wrap items-center gap-2">
                   <TalkedStatus c={c} onChange={(u) => setRows((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)))} />
+                  <ContactStatusSelect c={c} onChange={(u) => setRows((prev) => prev && prev.map((x) => (x.id === u.id ? u : x)))} />
                 </div>
               </div>
               {onUse &&

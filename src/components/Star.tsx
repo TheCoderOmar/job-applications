@@ -1,12 +1,24 @@
 
-/** Star toggle for a job. Stops the click so it works inside links and cards. */
-export default function StarButton({ starred, onToggle, className = '' }: { starred: boolean; onToggle: () => void; className?: string }) {
+/** Star toggle (a job by default). Stops the click so it works inside links and cards. */
+export default function StarButton({
+  starred,
+  onToggle,
+  className = '',
+  label = 'Star this job',
+  onLabel = 'Starred',
+}: {
+  starred: boolean;
+  onToggle: () => void;
+  className?: string;
+  label?: string;
+  onLabel?: string;
+}) {
   return (
     <button
       type="button"
       aria-pressed={starred}
-      aria-label={starred ? 'Remove star' : 'Star this job'}
-      title={starred ? 'Starred' : 'Star this job'}
+      aria-label={starred ? `${onLabel} (click to remove)` : label}
+      title={starred ? onLabel : label}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

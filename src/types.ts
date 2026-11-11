@@ -33,7 +33,17 @@ export interface Contact {
   last_message_at: string | null;
   /** Date you marked "talked to" by hand, or null. */
   talked_at: string | null;
+  /** Where you stand with them; null = no status yet. */
+  status: ContactStatus | null;
+  favorite: number;
 }
+
+export type ContactStatus = 'message_sent' | 'chatting' | 'referred';
+export const CONTACT_STATUS: Record<ContactStatus, { label: string; color: string }> = {
+  message_sent: { label: 'Message sent', color: '#60a5fa' },
+  chatting: { label: 'Chatting', color: '#fbbf24' },
+  referred: { label: 'Referred', color: '#34d399' },
+};
 
 export interface Stage {
   id: number;

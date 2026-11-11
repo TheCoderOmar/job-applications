@@ -1,4 +1,4 @@
-import type { Company, Contact, Cv, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
+import type { Company, Contact, ContactStatus, Cv, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
@@ -99,6 +99,8 @@ export const api = {
   contacts: (q = '') => request<Contact[]>(`/api/contacts${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   createContact: (data: Partial<Contact>) => request<Contact>('/api/contacts', json('POST', data)),
   updateContact: (id: number, data: Partial<Contact>) => request<Contact>(`/api/contacts/${id}`, json('PUT', data)),
+  patchContact: (id: number, data: { status?: ContactStatus | null; favorite?: boolean }) =>
+    request<Contact>(`/api/contacts/${id}`, json('PATCH', data)),
   setTalked: (id: number, talked: boolean) => request<Contact>(`/api/contacts/${id}/talked`, json('PATCH', { talked })),
   deleteContact: (id: number) => request<void>(`/api/contacts/${id}`, { method: 'DELETE' }),
   importLinkedIn: (csv: string) =>

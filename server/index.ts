@@ -506,6 +506,9 @@ function saveReferrers(jobId: number | bigint, ids: number[]) {
   db.prepare('DELETE FROM job_referrers WHERE job_id = ?').run(jobId);
   const insert = db.prepare('INSERT INTO job_referrers (job_id, contact_id, slot) VALUES (?, ?, ?)');
   ids.forEach((id, i) => insert.run(jobId, id, i + 1));
+  // Someone who referred you is "Referred", unless you already set where you stand with them.
+  if (ids.length)
+    db.prepare(`UPDATE contacts SET status = 'referred' WHERE status IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 }
 
 const referrersOf = (jobId: number | string) =>
@@ -818,6 +821,25 @@ app.post('/api/contacts/import-messages', (req, res) => {
     return { people: stats.size, matched, not_connections: stats.size - used.size };
   })();
   res.json(result);
+});
+
+export const CONTACT_STATUSES = ['message_sent', 'chatting', 'referred'] as const;
+
+/** Where you stand with a person ({ status: 'chatting' | … | null }) and/or the favourite star ({ favorite: bool }). */
+app.patch('/api/contacts/:id', (req, res) => {
+  const sets: string[] = [];
+  const params: Row = { id: req.params.id };
+  if ('status' in req.body) {
+    const st = req.body.status || null;
+    if (st !== null && !CONTACT_STATUSES.includes(st)) return res.status(400).json({ error: 'Unknown status' });
+    sets.push('status = @status');
+    params.status = st;
+  }
+  if ('favorite' in req.body) (sets.push('favorite = @favorite'), (params.favorite = req.body.favorite ? 1 : 0));
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
+  const info = db.prepare(`UPDATE contacts SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  if (!info.changes) return res.status(404).json({ error: 'Contact not found' });
+  res.json(db.prepare(`${contactSelect} WHERE c.id = ?`).get(req.params.id));
 });
 
 /** Mark or unmark "I talked to this person". */

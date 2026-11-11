@@ -2,6 +2,14 @@
 
 All notable changes to Job Applications.
 
+## [1.2.1] - 2026-11-11
+
+### Changed
+- Starter companies: 228 in all. The new Egypt companies use their LinkedIn names and pages (Abu Dhabi Commercial Bank, EGYPTAIR, Eastern Company, Intel, KPMG Middle East), and 11 more now have their LinkedIn page, details and offices (Bank NXT, Capgemini, Concentrix, Dell Technologies, Edita, Ezz Steel, Faisal Islamic Bank, Mansour Group, Nokia, Oracle, The Arab Contractors)
+- Huawei, Teleperformance and Unilever are no longer in the starter list
+
+On a copy you already use, **Settings → Starter companies** adds the ones you don't have yet.
+
 ## [1.2.0] - 2026-11-11
 
 ### Added

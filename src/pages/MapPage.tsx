@@ -44,17 +44,24 @@ function ClearOnMapClick({ onClear }: { onClear: () => void }) {
   return null;
 }
 
-/** When a company is selected, makes sure all its offices are in view (zooming out only if some are off-screen). */
-function ShowSelected({ points }: { points: [number, number][] }) {
+/**
+ * "Show all N offices" in a pin's popup: zooms out to fit them. Selecting a company never moves the map by itself:
+ * one with offices around the world used to throw you out to the whole globe on every click.
+ */
+function ShowAllOffices({ points }: { points: [number, number][] }) {
   const map = useMap();
-  const key = points.map((p) => p.join(',')).join('|');
-  useEffect(() => {
-    if (points.length < 2) return;
-    const b = L.latLngBounds(points);
-    if (!map.getBounds().contains(b)) map.fitBounds(b, { padding: [80, 80], maxZoom: map.getZoom() });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, map]);
-  return null;
+  return (
+    <button
+      type="button"
+      className="text-xs font-medium text-amber-300 hover:underline"
+      onClick={(e) => {
+        e.stopPropagation();
+        map.fitBounds(L.latLngBounds(points), { padding: [60, 60], maxZoom: 12, animate: false });
+      }}
+    >
+      {points.length} offices highlighted · Show all
+    </button>
+  );
 }
 
 type Spot = Pick<CompanyLocation, 'lat' | 'lng' | 'label' | 'address' | 'city' | 'country'> & { id: number | string; is_primary: number };
@@ -98,6 +105,8 @@ export default function MapPage() {
   const [home, setHome] = useState<Home | null>(null);
   // The company whose pin you clicked: all its offices are highlighted.
   const [selected, setSelected] = useState<number | null>(null);
+  // The pin you clicked (company id + location id): the only one that pulses.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   useEffect(() => {
     api.companies().then(setCompanies);
@@ -138,7 +147,6 @@ export default function MapPage() {
         <DarkTiles />
         <FitBounds points={points} />
         <ClearOnMapClick onClear={() => setSelected(null)} />
-        <ShowSelected points={selectedPoints} />
         {home && (
           <Marker position={[home.lat, home.lng]} icon={homeIcon} zIndexOffset={1000}>
             <Popup>
@@ -150,16 +158,20 @@ export default function MapPage() {
         {spots.map(({ c, l }) => {
           const cj = jobsByCompany.get(c.id) ?? [];
           const count = spotsOf(c).length;
-          const state = selected === null ? 'normal' : selected === c.id ? 'selected' : 'dim';
+          const key = `${c.id}-${l.id}`;
+          const state = selected === null ? 'normal' : selected !== c.id ? 'dim' : key === activeKey ? 'active' : 'selected';
           const place = [l.city, l.country].filter(Boolean).join(', ') || l.address || locationText(c);
           return (
             <Marker
-              key={`${c.id}-${l.id}`}
+              key={key}
               position={[l.lat!, l.lng!]}
               icon={pinIcon(!!c.is_remote, state)}
-              zIndexOffset={state === 'selected' ? 1500 : 0}
+              zIndexOffset={state === 'active' ? 1600 : state === 'selected' ? 1500 : 0}
               eventHandlers={{
-                click: () => setSelected(c.id),
+                click: () => {
+                  setSelected(c.id);
+                  setActiveKey(key);
+                },
                 popupclose: () => setSelected((s) => (s === c.id ? null : s)),
               }}
             >
@@ -173,7 +185,7 @@ export default function MapPage() {
                       {place}
                       {l.label ? ` · ${l.label}` : ''}
                     </div>
-                    {count > 1 && <div className="text-xs text-amber-300">{count} locations, all highlighted on the map</div>}
+                    {count > 1 && <ShowAllOffices points={selectedPoints.length ? selectedPoints : spotsOf(c).map((s) => [s.lat!, s.lng!])} />}
                     {home && (
                       <div className="text-xs text-muted">
                         ~{formatKm(distanceKm(home, { lat: l.lat!, lng: l.lng! }))} from home (straight line)

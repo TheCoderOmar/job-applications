@@ -15,18 +15,22 @@ export function DarkTiles() {
   );
 }
 
-/** How a pin looks: normal, the selected company's (bigger, amber, pulsing) or another company's while one is selected (dimmed). */
-export type PinState = 'normal' | 'selected' | 'dim';
+/**
+ * How a pin looks: normal; the selected company's offices (bigger, amber); the one you clicked ("active": also pulses,
+ * just that one, since a company can have a hundred offices); or another company's while one is selected (dimmed).
+ */
+export type PinState = 'normal' | 'selected' | 'active' | 'dim';
 
 const icons = new Map<string, L.DivIcon>();
 export function pinIcon(remote: boolean, state: PinState = 'normal') {
   const key = `${remote}-${state}`;
   let icon = icons.get(key);
   if (!icon) {
-    const size = state === 'selected' ? 22 : 16;
+    const size = state === 'selected' || state === 'active' ? 22 : 16;
+    const cls = state === 'normal' ? '' : state === 'active' ? ' pin-selected pin-active' : ` pin-${state}`;
     icon = L.divIcon({
       className: '',
-      html: `<div class="pin ${remote ? 'pin-remote' : 'pin-onsite'}${state === 'normal' ? '' : ` pin-${state}`}"></div>`,
+      html: `<div class="pin ${remote ? 'pin-remote' : 'pin-onsite'}${cls}"></div>`,
       iconSize: [size, size],
       iconAnchor: [size / 2, size / 2],
       popupAnchor: [0, -size / 2 - 2],

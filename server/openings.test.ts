@@ -137,3 +137,26 @@ test('parseLinkedInJob reads the hiring company link', async () => {
   assert.equal(j.company, '2P Perfect Presentation');
   assert.equal(j.company_linkedin, 'https://www.linkedin.com/company/2pcompanysa');
 });
+
+test('profileUrl keeps only LinkedIn profile links, in one form', async () => {
+  const { profileUrl } = await import('./openings.js');
+  assert.equal(profileUrl('https://eg.linkedin.com/in/marianne-narouz-12ab/?trk=public_jobs'), 'https://www.linkedin.com/in/marianne-narouz-12ab');
+  assert.equal(profileUrl('https://www.linkedin.com/in/ahmed%C3%A9'), 'https://www.linkedin.com/in/ahmedé');
+  assert.equal(profileUrl('https://www.linkedin.com/company/sumerge'), null);
+  assert.equal(profileUrl(null), null);
+});
+
+test('parseLinkedInJob reads the hiring team from the public job page', async () => {
+  const { parseLinkedInJob } = await import('./openings.js');
+  const card = (slug: string, name: string, headline: string) =>
+    `<div class="base-main-card flex"><a class="base-card__full-link" href="https://eg.linkedin.com/in/${slug}?trk=public_jobs_hiring-team">
+       <span class="sr-only">${name}</span></a><div class="base-main-card__info">
+       <h3 class="base-main-card__title">\n ${name}\n </h3><h4 class="base-main-card__subtitle"> ${headline} </h4></div></div>`;
+  const html = `<h2 class="topcard__title">BI Developer</h2>
+    <div class="message-the-recruiter"><h2>Meet the hiring team</h2>${card('marianne-narouz', 'Marianne Narouz', 'Talent Acquisition at Sumerge')}${card('x-y', 'Ali Y', '')}</div>`;
+  assert.deepEqual(parseLinkedInJob(html).hiring_team, [
+    { name: 'Marianne Narouz', linkedin_url: 'https://www.linkedin.com/in/marianne-narouz', headline: 'Talent Acquisition at Sumerge' },
+    { name: 'Ali Y', linkedin_url: 'https://www.linkedin.com/in/x-y', headline: null },
+  ]);
+  assert.deepEqual(parseLinkedInJob('<h2 class="topcard__title">No team</h2>').hiring_team, []);
+});

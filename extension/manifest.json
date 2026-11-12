@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Importer",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Send what you're looking at to your local Job Tracker: a job (LinkedIn, Workable, Indeed, Wuzzuf), a LinkedIn post, company or person.",
   "action": {
     "default_popup": "popup.html",

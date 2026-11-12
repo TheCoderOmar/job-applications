@@ -166,6 +166,59 @@ async function grabLinkedIn(kind) {
   };
 }
 
+/**
+ * Runs inside a LinkedIn job tab (must not use anything outside itself): the people under "Meet the hiring team"
+ * (name, profile link, headline). LinkedIn shows them only when you're logged in, so the app can't read them itself.
+ */
+function grabHiringTeam() {
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const isHeading = (el) => el.childElementCount === 0 && /^meet the hiring team$/i.test(clean(el.textContent));
+  const heading = [...document.querySelectorAll('h1, h2, h3, h4, span, div, p')].find(isHeading);
+  if (!heading) return [];
+  // The smallest block around the heading that holds profile links.
+  let section = heading;
+  while (section.parentElement && section !== document.body && !section.querySelector('a[href*="/in/"]')) section = section.parentElement;
+  if (section === document.body) return [];
+  const noise = /^(message|follow|connect|view profile|job poster|show more|show all|verified|premium|\d+(st|nd|rd|th)\+?|·.*|•.*)$/i;
+  const people = [];
+  for (const a of section.querySelectorAll('a[href*="/in/"]')) {
+    const url = a.href.split('?')[0].replace(/\/+$/, '');
+    if (people.some((p) => p.linkedin_url === url)) continue;
+    // The card: the biggest block around the link that holds no one else's profile.
+    let card = a;
+    while (
+      card.parentElement &&
+      card.parentElement !== section &&
+      [...card.parentElement.querySelectorAll('a[href*="/in/"]')].every((x) => x.href.split('?')[0].replace(/\/+$/, '') === url)
+    )
+      card = card.parentElement;
+    const lines = String(card.innerText || card.textContent || '')
+      .split('\n')
+      .map((l) => clean(l).replace(/\s*[·•]\s*(1st|2nd|3rd\+?|\d+th)\b.*$/i, ''))
+      .filter((l) => l && !noise.test(l));
+    const name = lines[0];
+    if (!name) continue;
+    people.push({ name, linkedin_url: url, headline: lines.find((l) => l !== name) || null });
+  }
+  return people.slice(0, 5);
+}
+
+/** A LinkedIn job: sends its hiring team from the tab; null when there's none (the app reads the job itself). */
+async function sendHiringTeam(base, tabId, url) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: grabHiringTeam });
+    if (!result?.length) return null;
+    const res = await fetch(`${base}/api/import/page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, html: '', data: { hiring_team: result } }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Sends what the LinkedIn tab shows to the app; null when it can't (then the app reads the public page). */
 async function sendLinkedIn(base, tabId, kind) {
   try {
@@ -215,10 +268,13 @@ async function sendToTracker(url, title, tab, link) {
   const sent =
     li && tab?.id && !link
       ? await sendLinkedIn(base, tab.id, li)
-      : // Indeed, Wuzzuf, jobs.workable.com: send the page from the tab (a right-clicked link is read from the tab too).
-        boardKind(url) && tab?.id
-        ? await sendPage(base, tab.id, link ? url : '')
-        : null;
+      : // A LinkedIn job open in this tab: its "Meet the hiring team" (the recruiter) comes from the tab.
+        pageKind(url) === 'LinkedIn job' && tab?.id && !link
+        ? await sendHiringTeam(base, tab.id, url)
+        : // Indeed, Wuzzuf, jobs.workable.com: send the page from the tab (a right-clicked link is read from the tab too).
+          boardKind(url) && tab?.id
+          ? await sendPage(base, tab.id, link ? url : '')
+          : null;
   const q = new URLSearchParams({ import: sent?.url || url });
   if (li === 'company') q.set('kind', 'company');
   if (li === 'profile') q.set('kind', 'contact');

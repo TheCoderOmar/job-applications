@@ -111,6 +111,11 @@ export interface Job {
   /** The CV you applied with. */
   cv_id: number | null;
   cv_label: string | null;
+  /** The recruiter (from LinkedIn's "Meet the hiring team", or picked by hand): one of your contacts. */
+  recruiter_id: number | null;
+  recruiter_name: string | null;
+  recruiter_linkedin: string | null;
+  recruiter_position: string | null;
   referrer_count: number;
   starred: 0 | 1;
   /** Furthest stage reached that isn't a closed-lost one, e.g. "HR interview" for "ghosted after HR interview". */
@@ -118,6 +123,13 @@ export interface Job {
   logo_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Someone from a posting's "Meet the hiring team". */
+export interface HiringPerson {
+  name: string;
+  linkedin_url: string | null;
+  headline: string | null;
 }
 
 export interface Cv {

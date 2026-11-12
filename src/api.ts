@@ -1,4 +1,4 @@
-import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats } from './types';
+import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats, HiringPerson } from './types';
 
 type JobInput = Partial<Job> & { referrer_ids?: number[] };
 
@@ -86,6 +86,8 @@ export const api = {
       description: string | null;
       workplace: 'remote' | 'hybrid' | 'onsite' | null;
       closed: boolean;
+      /** LinkedIn's "Meet the hiring team" (the recruiter first). */
+      hiring_team?: HiringPerson[];
     }>('/api/import/job', json('POST', { url, page })),
   setCompanyWuzzuf: (id: number, url: string) => request<Company | null>(`/api/companies/${id}/wuzzuf`, json('PATCH', { url })),
   linkedInJob: (url: string) =>

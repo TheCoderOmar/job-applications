@@ -58,6 +58,7 @@ You can rename, recolor, reorder, add, and delete stages in Settings. A job coun
 ## Applications: channel, referrers, connections
 
 - **Applied via**: Email, Company website, LinkedIn, Wuzzuf or Other (a Wuzzuf job import picks Wuzzuf by itself), plus the address or link you used.
+- **Recruiter**: the person hiring for the job (one of your contacts). Importing a LinkedIn job with the browser extension fills it from the posting's **Meet the hiring team**, and adds them to your contacts if they aren't there yet.
 - **Referred by**: up to 3 people per application (optional). Pick from your contacts (connections at that company are listed first) or type a new name.
 - **Contacts → Import LinkedIn export**: on LinkedIn go to *Settings & Privacy → Data privacy → Get a copy of your data*, tick **Connections** (or, if it isn't listed, choose the larger archive "including connections"), then pick the `.zip` LinkedIn emails you. Only `Connections.csv` and `messages.csv` are read from it. Import it again any time; nobody is duplicated. Each job and company page then lists **your connections at that company**.
 - **Status and favourites**: give each person a status (**Message sent**, **Chatting**, **Referred**) right in the list, filter by it, and star people to keep them on the **Favourites** tab. Adding someone as a referrer marks them Referred.
@@ -98,7 +99,7 @@ Import what you're looking at straight into the app. It knows which kind of page
 
 | Page | What the button does |
 | --- | --- |
-| LinkedIn, Workable, Indeed or Wuzzuf **job** | **Import job**: logs the application, filled in |
+| LinkedIn, Workable, Indeed or Wuzzuf **job** | **Import job**: logs the application, filled in; on LinkedIn, the person under **Meet the hiring team** becomes the recruiter |
 | LinkedIn **post** (a recruiter's "we're hiring") | **Import job from post**: the post becomes the description; the company is the page that posted it, one of yours named in it, or the employer in the author's headline |
 | LinkedIn **company** page | **Import company**: the company with every office from its Locations; one you already have only gets the offices it's missing |
 | LinkedIn **profile** | **Import contact**: name, position and company; their company is added too if you don't have it |
@@ -107,7 +108,7 @@ Import what you're looking at straight into the app. It knows which kind of page
 2. Pin **Job Tracker Importer**. With the app running, open one of the pages above and click the icon.
 3. A small window opens beside the page, already filled in; your tab stays as it is. Check it and save, and the window closes. A company that isn't in your list yet is created when you save (or pick **+ New company…** and type it).
 
-Company pages, profiles and posts are read from your own logged-in tab, so you see the same details LinkedIn shows you. Indeed and Wuzzuf block the app from reading their pages, so for them the extension sends the page you have open (pasting their links into the form won't fill it). On Indeed's search page it reads the job open on the right. After updating the extension (now 1.3.0), click **Reload** on its card once.
+Company pages, profiles and posts are read from your own logged-in tab, so you see the same details LinkedIn shows you. Indeed and Wuzzuf block the app from reading their pages, so for them the extension sends the page you have open (pasting their links into the form won't fill it). On Indeed's search page it reads the job open on the right. After updating the extension (now 1.4.0), click **Reload** on its card once.
 
 You can also right-click a link (or any page) → **Import this link to Job Tracker**. Other sites get their link and page title filled in. The popup shows a green dot when the app is reachable; change the app address under **App address** if it isn't `http://localhost:5173`. After changing extension files, click **Reload** on its card in the extensions page.
 

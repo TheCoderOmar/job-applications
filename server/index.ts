@@ -17,7 +17,7 @@ import {
 } from './linkedin.js';
 import { buildSankey, conversationStats, normalizeCompany as normalizeName, parseLinkedInConnections, profileKey, sameCompany, type SankeyStage } from './contacts.js';
 import { canonicalWuzzufCompany, cleanJobUrl, fetchWorkableSearchJob, jobBoard, keepPage, keptPage, needsExtension, parseJobPage } from './jobpages.js';
-import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, websiteOpenings, type FoundOpening } from './openings.js';
+import { fetchLinkedInJob, fetchWorkableJob, workableJobRef, findLinkedInCompanyPage, linkedInCompanyId, linkedInJobId, linkedInOpenings, profileUrl, websiteOpenings, type FoundOpening, type HiringPerson } from './openings.js';
 import { canonicalCompanyUrl } from './linkedin.js';
 import { contentDisposition, defaultCvLabel, parseCvFile } from './cvs.js';
 import { parseQuizFile, shuffle } from './quiz.js';
@@ -428,11 +428,13 @@ const jobSelect = `
            WHERE h2.job_id = j.id AND s2.kind != 'closed_lost' ORDER BY s2.sort_order DESC LIMIT 1) AS reached_stage,
          (SELECT CASE WHEN l.status = 'found' THEN l.fetched_at END FROM company_logos l WHERE l.company_id = j.company_id) AS logo_at,
          c.name AS company_name, s.name AS stage_name, s.color AS stage_color, s.kind AS stage_kind, s.sort_order AS stage_order,
-         cv.label AS cv_label
+         cv.label AS cv_label,
+         rc.full_name AS recruiter_name, rc.linkedin_url AS recruiter_linkedin, rc.position AS recruiter_position
   FROM jobs j
   JOIN companies c ON c.id = j.company_id
   JOIN stages s ON s.id = j.stage_id
-  LEFT JOIN cvs cv ON cv.id = j.cv_id`;
+  LEFT JOIN cvs cv ON cv.id = j.cv_id
+  LEFT JOIN contacts rc ON rc.id = j.recruiter_id`;
 
 function normalizeJob(body: Row) {
   const j: Row = {};
@@ -610,10 +612,30 @@ async function checkClosedPostings() {
   }
 }
 
+/** The hiring team the extension read from your logged-in LinkedIn tab (names, profile links, headlines). */
+function tabHiringTeam(data: unknown): HiringPerson[] {
+  const list = (data as { hiring_team?: unknown } | null)?.hiring_team;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((p) => ({
+      name: String(p?.name ?? '').replace(/\s+/g, ' ').trim(),
+      linkedin_url: profileUrl(p?.linkedin_url),
+      headline: String(p?.headline ?? '').replace(/\s+/g, ' ').trim() || null,
+    }))
+    .filter((p) => p.name)
+    .slice(0, 5);
+}
+
 async function importJob(url: string, pageId: string | null) {
   if (pageId) {
     const page = keptPage(pageId);
     if (!page) throw new Error('The page from the extension has expired. Click the extension on the job again.');
+    // A LinkedIn job: the app reads the posting; the tab adds the hiring team, which LinkedIn shows only when logged in.
+    if (linkedInJobId(page.url)) {
+      const li = await fetchLinkedInJob(page.url);
+      const team = tabHiringTeam(page.data);
+      return { ...li, hiring_team: team.length ? team : (li.hiring_team ?? []), source: 'linkedin' as const };
+    }
     return parseJobPage(page.html, page.url);
   }
   const board = jobBoard(url);
@@ -629,6 +651,9 @@ app.post('/api/import/page', (req, res) => {
   const html = String(req.body.html ?? '');
   // LinkedIn company pages, profiles and posts come with what the extension read from them (`data`).
   if (linkedInKind(url)) return res.json({ page: keepPage(url, html, Date.now(), req.body.data ?? null), url });
+  // A LinkedIn job with its hiring team from your tab; the job itself is read by the app.
+  const liJob = linkedInJobId(url);
+  if (liJob) return res.json({ page: keepPage(url, html, Date.now(), req.body.data ?? null), url: `https://www.linkedin.com/jobs/view/${liJob}` });
   if (!jobBoard(url) || !html) return res.status(400).json({ error: 'Send the job page link and its HTML.' });
   res.json({ page: keepPage(url, html), url: cleanJobUrl(url) });
 });
@@ -709,6 +734,37 @@ function saveReferrers(jobId: number | bigint, ids: number[]) {
     db.prepare(`UPDATE contacts SET status = 'referred' WHERE status IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 }
 
+/**
+ * The recruiter from a request body: `recruiter_id` (a contact, or null to clear it), or `recruiter`
+ * ({ full_name, linkedin_url?, position? }, e.g. from an imported posting's hiring team): the contact with that
+ * LinkedIn page or name, created when you don't have them yet. undefined when the body doesn't mention it.
+ */
+function recruiterOf(body: Row, companyId: number): number | null | undefined | string {
+  const p = body.recruiter as { full_name?: string; name?: string; linkedin_url?: string | null; position?: string | null; headline?: string | null } | null | undefined;
+  if (p && typeof p === 'object') {
+    const name = String(p.full_name ?? p.name ?? '').trim();
+    if (!name) return 'The recruiter needs a name.';
+    const url = profileUrl(p.linkedin_url);
+    const known = (url
+      ? db.prepare(`SELECT id FROM contacts WHERE rtrim(linkedin_url, '/') = ? COLLATE NOCASE`).get(url)
+      : db.prepare(`SELECT id FROM contacts WHERE full_name = ? COLLATE NOCASE ORDER BY linkedin_url IS NULL LIMIT 1`).get(name)) as
+      | { id: number }
+      | undefined;
+    if (known) return known.id;
+    const company = (db.prepare('SELECT name FROM companies WHERE id = ?').get(companyId) as { name: string } | undefined)?.name ?? null;
+    const position = String(p.position ?? p.headline ?? '').trim() || null;
+    return Number(
+      db
+        .prepare(`INSERT INTO contacts (full_name, company, position, linkedin_url, source) VALUES (?, ?, ?, ?, 'manual')`)
+        .run(name, company, position, url).lastInsertRowid,
+    );
+  }
+  if (!('recruiter_id' in body)) return undefined;
+  const id = numOrNull(body.recruiter_id);
+  if (id === null) return null;
+  return db.prepare('SELECT 1 FROM contacts WHERE id = ?').get(id) ? id : 'That recruiter no longer exists.';
+}
+
 const referrersOf = (jobId: number | string) =>
   db
     .prepare(`SELECT c.* FROM job_referrers r JOIN contacts c ON c.id = r.contact_id WHERE r.job_id = ? ORDER BY r.slot`)
@@ -766,6 +822,10 @@ app.post('/api/jobs', (req, res) => {
   if (!j.company_id) return res.status(400).json({ error: 'Company is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });
+  if (!req.body.recruiter && 'recruiter_id' in req.body) {
+    const rec = recruiterOf({ recruiter_id: req.body.recruiter_id }, j.company_id as number);
+    if (typeof rec === 'string') return res.status(400).json({ error: rec });
+  }
   const id = db.transaction(() => {
     const cols = JOB_FIELDS.join(', ');
     const params = JOB_FIELDS.map((f) => '@' + f).join(', ');
@@ -773,6 +833,8 @@ app.post('/api/jobs', (req, res) => {
     db.prepare('INSERT INTO stage_history (job_id, stage_id) VALUES (?, ?)').run(info.lastInsertRowid, j.stage_id);
     alignAppliedStep(info.lastInsertRowid);
     if (refs) saveReferrers(info.lastInsertRowid, refs);
+    const rec = recruiterOf(req.body, j.company_id as number);
+    if (typeof rec !== 'string' && rec !== undefined) db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?').run(rec, info.lastInsertRowid);
     return info.lastInsertRowid;
   })();
   queueDescriptionFill(id);
@@ -789,6 +851,10 @@ app.put('/api/jobs/:id', (req, res) => {
   if (!j.title) return res.status(400).json({ error: 'Title is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });
+  if (!req.body.recruiter && 'recruiter_id' in req.body) {
+    const rec = recruiterOf({ recruiter_id: req.body.recruiter_id }, j.company_id as number);
+    if (typeof rec === 'string') return res.status(400).json({ error: rec });
+  }
   db.transaction(() => {
     const sets = JOB_FIELDS.map((f) => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE jobs SET ${sets}, updated_at = datetime('now') WHERE id = @id`).run({ ...j, id: req.params.id });
@@ -797,6 +863,8 @@ app.put('/api/jobs/:id', (req, res) => {
     }
     if (prev.applied_date !== j.applied_date) alignAppliedStep(req.params.id);
     if (refs) saveReferrers(Number(req.params.id), refs);
+    const rec = recruiterOf(req.body, j.company_id as number);
+    if (typeof rec !== 'string' && rec !== undefined) db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?').run(rec, req.params.id);
   })();
   queueDescriptionFill(req.params.id);
   ghostStaleApplications(); // an old application saved now is ghosted straight away
@@ -1752,9 +1820,12 @@ app.post(
         if (Array.isArray(company_locations)) insertAll('company_locations', company_locations);
         else backfillLocations();
         insertAll('cvs', cvs.map((cv) => ({ ...cv, data: Buffer.from(String(cv.data ?? ''), 'base64') })));
-        insertAll('jobs', jobs);
+        // Recruiters are contacts, which come back after the jobs: linked once they're in.
+        insertAll('jobs', jobs.map(({ recruiter_id: _r, ...j }) => j));
         insertAll('stage_history', stage_history);
         insertAll('contacts', contacts);
+        const setRecruiter = db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?');
+        for (const j of jobs) if (j.recruiter_id) setRecruiter.run(j.recruiter_id, j.id);
         insertAll('job_referrers', job_referrers);
         insertAll('company_logos', company_logos.map((l) => ({ ...l, data: l.data ? Buffer.from(String(l.data), 'base64') : null })));
         insertAll('settings', settings);

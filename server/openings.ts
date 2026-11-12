@@ -437,6 +437,41 @@ export function linkedInJobId(url: string | null | undefined): string | null {
   return /\/jobs\/view\/(?:[^/?#]*?-)?(\d{6,})/.exec(u)?.[1] ?? /[?&](?:currentJobId|jobId)=(\d{6,})/.exec(u)?.[1] ?? null;
 }
 
+/** Someone from a posting's "Meet the hiring team" (usually the recruiter). */
+export interface HiringPerson {
+  name: string;
+  linkedin_url: string | null;
+  headline: string | null;
+}
+
+/** "https://eg.linkedin.com/in/marianne-narouz-123/?trk=x" → "https://www.linkedin.com/in/marianne-narouz-123"; anything else → null. */
+export function profileUrl(href: string | null | undefined): string | null {
+  const m = /linkedin\.com\/in\/([^/?#\s"'<>]+)/i.exec(String(href ?? ''));
+  if (!m) return null;
+  let slug = m[1];
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {
+    /* keep it as it is */
+  }
+  return `https://www.linkedin.com/in/${slug}`;
+}
+
+/** The hiring team on LinkedIn's public job page ("message-the-recruiter" cards). */
+export function parseHiringTeam(html: string): HiringPerson[] {
+  const at = html.search(/message-the-recruiter|hiring-team/i);
+  if (at < 0) return [];
+  const block = html.slice(at, at + 20000);
+  const out: HiringPerson[] = [];
+  for (const card of block.split(/(?=<div[^>]*class="[^"]*base-main-card[\s"])/).slice(1)) {
+    const linkedin_url = profileUrl(/href="([^"]*linkedin\.com\/in\/[^"]*)"/.exec(card)?.[1]);
+    const name = text(/base-main-card__title[^>]*>([\s\S]*?)<\/h3>/.exec(card)?.[1] ?? '');
+    const headline = text(/base-main-card__subtitle[^>]*>([\s\S]*?)<\/h4>/.exec(card)?.[1] ?? '') || null;
+    if (name && !out.some((p) => p.name === name)) out.push({ name, linkedin_url, headline });
+  }
+  return out;
+}
+
 export interface LinkedInJob {
   title: string | null;
   company: string | null;
@@ -448,6 +483,8 @@ export interface LinkedInJob {
   details: Record<string, string>;
   /** LinkedIn shows "No longer accepting applications". */
   closed: boolean;
+  /** "Meet the hiring team" (LinkedIn jobs only). */
+  hiring_team?: HiringPerson[];
 }
 
 /** Job description HTML → readable plain text: paragraphs, line breaks and "• " bullets. */
@@ -492,6 +529,7 @@ export function parseLinkedInJob(html: string): LinkedInJob {
     workplace,
     details,
     closed: /closed-job__flavor--closed|no longer accepting applications/i.test(html),
+    hiring_team: parseHiringTeam(html),
   };
 }
 

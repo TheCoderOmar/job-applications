@@ -968,7 +968,7 @@ app.delete('/api/jobs/:id', (req, res) => {
 
 // ---------- Contacts (LinkedIn connections and referrers) ----------
 
-const CONTACT_STATUSES = ['message_sent', 'chatting', 'referred'] as const;
+const CONTACT_STATUSES = ['waiting_connection', 'message_sent', 'chatting', 'referred'] as const;
 
 const CONTACT_FIELDS = ['full_name', 'company', 'position', 'linkedin_url', 'email', 'connected_on', 'status'] as const;
 

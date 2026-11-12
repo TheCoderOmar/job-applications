@@ -2,6 +2,15 @@
 
 All notable changes to Job Applications.
 
+## [Unreleased]
+
+### Added
+- Applications have a **Recruiter**: one of your contacts, picked in the form and shown on the job page
+- Browser extension 1.4.0: importing a LinkedIn job also takes the person under **Meet the hiring team** as the recruiter, and adds them to your contacts (with their profile link and title) if they aren't there yet
+
+### Fixed
+- A job page no longer runs wider than a phone screen when the company has many connections
+
 ## [1.2.1] - 2026-11-11
 
 ### Changed

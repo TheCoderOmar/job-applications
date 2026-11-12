@@ -168,10 +168,12 @@ interface PickerProps {
   onChange: (v: Contact[]) => void;
   /** Company being applied to: its connections are suggested first. */
   companyId?: number;
+  /** How many people can be picked (3 referrers; 1 recruiter). */
+  max?: number;
 }
 
 /** Up to three referrers, picked from your contacts (connections at the company first) or added by name. */
-export function ReferrerPicker({ value, onChange, companyId }: PickerProps) {
+export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS }: PickerProps) {
   const [all, setAll] = useState<Contact[]>([]);
   const [atCompany, setAtCompany] = useState<Contact[]>([]);
   const [q, setQ] = useState('');
@@ -187,7 +189,7 @@ export function ReferrerPicker({ value, onChange, companyId }: PickerProps) {
   }, [companyId]);
 
   const chosen = new Set(value.map((c) => c.id));
-  const full = value.length >= MAX_REFERRERS;
+  const full = value.length >= max;
   const options = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const atIds = new Set(atCompany.map((c) => c.id));
@@ -226,7 +228,7 @@ export function ReferrerPicker({ value, onChange, companyId }: PickerProps) {
         </div>
       )}
       {full ? (
-        <p className="text-xs text-muted">That's the maximum of {MAX_REFERRERS} referrers.</p>
+        max > 1 && <p className="text-xs text-muted">That's the maximum of {max} referrers.</p>
       ) : (
         <div className="relative">
           <input

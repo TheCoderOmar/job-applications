@@ -229,6 +229,10 @@ db.exec(`
 if (!(db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).some((c) => c.name === 'talked_at'))
   db.exec(`ALTER TABLE contacts ADD COLUMN talked_at TEXT`);
 
+// The job's recruiter (LinkedIn's "Meet the hiring team"): one of your contacts.
+if (!(db.prepare('PRAGMA table_info(jobs)').all() as { name: string }[]).some((c) => c.name === 'recruiter_id'))
+  db.exec(`ALTER TABLE jobs ADD COLUMN recruiter_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL`);
+
 // A company's Wuzzuf page (wuzzuf.net/jobs/careers/…), next to its LinkedIn page (the main one).
 if (!(db.prepare('PRAGMA table_info(companies)').all() as { name: string }[]).some((c) => c.name === 'wuzzuf'))
   db.exec(`ALTER TABLE companies ADD COLUMN wuzzuf TEXT`);

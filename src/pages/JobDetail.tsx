@@ -102,7 +102,7 @@ export default function JobDetail() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <section className="card p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold">Job description</h2>
@@ -145,6 +145,17 @@ export default function JobDetail() {
                 >
                   {job.cv_label}
                 </button>
+              ) : (
+                <span>Not set</span>
+              )}
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="shrink-0 text-muted">Recruiter</span>
+              {job.recruiter_id ? (
+                <span className="flex min-w-0 flex-col items-end gap-0.5 text-right">
+                  <ReferrerChip c={{ id: job.recruiter_id, full_name: job.recruiter_name ?? '', linkedin_url: job.recruiter_linkedin } as Contact} />
+                  {job.recruiter_position && <span className="break-words text-xs text-muted">{job.recruiter_position}</span>}
+                </span>
               ) : (
                 <span>Not set</span>
               )}

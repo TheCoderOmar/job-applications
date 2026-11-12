@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, useRef } from 'react';
 import { api } from '../api';
-import { CHANNEL_LABELS, type ApplyChannel, type Company, type CompanyInput, type Contact, type Cv, type Job, type JobDetail, type Stage } from '../types';
+import { CHANNEL_LABELS, type ApplyChannel, type Company, type CompanyInput, type Contact, type Cv, type HiringPerson, type Job, type JobDetail, type Stage } from '../types';
 import { Link } from 'react-router-dom';
-import { ReferrerPicker } from './Contacts';
+import { ReferrerChip, ReferrerPicker } from './Contacts';
 import StepsEditor from './Steps';
 import Icon from './Icon';
 import DateInput from './DateInput';
@@ -35,6 +35,32 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   const [cvs, setCvs] = useState<Cv[]>([]);
   const [d, setD] = useState<Partial<Job>>({ location_type: 'unknown', ...initial });
   const [referrers, setReferrers] = useState<Contact[]>(initial?.referrers ?? []);
+  // The recruiter: one of your contacts, or someone from the posting's hiring team who becomes a contact on save.
+  const [recruiter, setRecruiter] = useState<Contact | null>(() =>
+    initial?.recruiter_id
+      ? ({ id: initial.recruiter_id, full_name: initial.recruiter_name ?? '', linkedin_url: initial.recruiter_linkedin ?? null, position: initial.recruiter_position ?? null } as Contact)
+      : null,
+  );
+  const [newRecruiter, setNewRecruiter] = useState<HiringPerson | null>(null);
+
+  /** The posting's hiring team → the recruiter: a contact you have (same LinkedIn page or name), or a new one made on save. */
+  async function takeRecruiter(team: HiringPerson[] | undefined, replace: boolean): Promise<string | null> {
+    const p = team?.[0];
+    if (!p || (!replace && (recruiter || newRecruiter))) return null;
+    const slug = (u: string | null | undefined) => /\/in\/([^/?#]+)/i.exec(u ?? '')?.[1]?.toLowerCase() ?? null;
+    const all = await api.contacts().catch(() => [] as Contact[]);
+    const known =
+      (slug(p.linkedin_url) && all.find((c) => slug(c.linkedin_url) === slug(p.linkedin_url))) ||
+      all.find((c) => c.full_name.trim().toLowerCase() === p.name.trim().toLowerCase());
+    if (known) {
+      setRecruiter(known);
+      setNewRecruiter(null);
+      return `recruiter (${known.full_name})`;
+    }
+    setRecruiter(null);
+    setNewRecruiter(p);
+    return `recruiter (${p.name}, added to your contacts when you save)`;
+  }
   const [error, setError] = useState('');
   const [liStatus, setLiStatus] = useState<{ text: string; error?: boolean } | null>(null);
 
@@ -134,6 +160,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         li.source === 'linkedin' ? 'linkedin' : li.source === 'workable' ? 'website' : li.source === 'wuzzuf' ? 'wuzzuf' : 'other';
       setCompanyWuzzuf(li.company_wuzzuf ?? null);
       const filled: string[] = [];
+      const rec = await takeRecruiter(li.hiring_team, replace);
       const company = li.company ? companies.find((c) => sameName(c.name, li.company!)) : undefined;
       const ghosted = stages.find((s) => s.name.toLowerCase() === 'ghosted');
       // Work out the changes from the form as it is now, so the message below matches them.
@@ -153,6 +180,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         if (li.company && !company && !isEdit) (next.company_id = NEW_COMPANY), filled.push('company (new)');
         const current = stages.find((s) => s.id === prev.stage_id);
         if (li.closed && ghosted && current?.kind === 'active' && current.sort_order > 0) (next.stage_id = ghosted.id), filled.push('stage (Ghosted)');
+        if (rec) filled.push(rec);
         setD(next);
       }
       const notes: string[] = [];
@@ -243,7 +271,13 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
       const { referrers: _r, history: _h, ...fields } = d as Partial<Job> & { referrers?: unknown; history?: unknown };
       // A company found on the posting but not in your list is created now, at save time.
       const company_id = fields.company_id === NEW_COMPANY ? await createNewCompany() : fields.company_id;
-      const body = { ...fields, company_id, referrer_ids: referrers.map((c) => c.id) };
+      const body = {
+        ...fields,
+        company_id,
+        referrer_ids: referrers.map((c) => c.id),
+        recruiter_id: recruiter?.id ?? null,
+        ...(newRecruiter ? { recruiter: { full_name: newRecruiter.name, linkedin_url: newRecruiter.linkedin_url, position: newRecruiter.headline } } : {}),
+      };
       const saved = isEdit ? await api.updateJob(initial!.id!, body) : await api.createJob(body);
       // An existing company without a Wuzzuf page gets the one from this Wuzzuf job (never replaces one it has).
       if (companyWuzzuf && company_id && fields.company_id !== NEW_COMPANY) await api.setCompanyWuzzuf(Number(company_id), companyWuzzuf).catch(() => {});
@@ -423,6 +457,20 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
                 Upload one in CVs
               </Link>
             </p>
+          )}
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Recruiter (optional)</label>
+          {newRecruiter ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <ReferrerChip
+                c={{ id: 0, full_name: newRecruiter.name, linkedin_url: newRecruiter.linkedin_url, position: newRecruiter.headline } as Contact}
+                onRemove={() => setNewRecruiter(null)}
+              />
+              <span className="text-xs text-muted">From the hiring team; added to your contacts when you save.</span>
+            </div>
+          ) : (
+            <ReferrerPicker max={1} value={recruiter ? [recruiter] : []} onChange={(v) => setRecruiter(v[0] ?? null)} companyId={d.company_id} />
           )}
         </div>
         <div className="sm:col-span-2">

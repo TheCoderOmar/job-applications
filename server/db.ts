@@ -250,9 +250,39 @@ if (!db.prepare(`SELECT 1 FROM settings WHERE key = 'wuzzuf_channel_added'`).get
 {
   const cols = new Set((db.prepare('PRAGMA table_info(contacts)').all() as { name: string }[]).map((c) => c.name));
   if (!cols.has('status'))
-    db.exec(`ALTER TABLE contacts ADD COLUMN status TEXT CHECK (status IN ('message_sent','chatting','referred'))`);
+    db.exec(`ALTER TABLE contacts ADD COLUMN status TEXT CHECK (status IN ('waiting_connection','message_sent','chatting','referred'))`);
   if (!cols.has('favorite')) db.exec(`ALTER TABLE contacts ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`);
 }
+
+/**
+ * Adds the "Waiting for connection" status (a connection request sent, not accepted yet). SQLite can't change a
+ * CHECK in place, so the contacts table is rebuilt once from its own definition, with foreign keys paused so
+ * referrers and recruiters keep pointing at the same people.
+ */
+function allowWaitingStatus() {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'contacts'`).get() as { sql: string };
+  if (row.sql.includes("'waiting_connection'")) return;
+  const newSql = row.sql
+    .replace(/CREATE TABLE\s+"?contacts"?/, 'CREATE TABLE contacts_new')
+    .replace(/CHECK\s*\(\s*status IN \('message_sent',\s*'chatting',\s*'referred'\)\s*\)/, "CHECK (status IN ('waiting_connection','message_sent','chatting','referred'))");
+  if (!newSql.includes("'waiting_connection'")) throw new Error('Could not update the contacts table definition.');
+  const indexes = (db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'contacts' AND sql IS NOT NULL`).all() as { sql: string }[]).map((r) => r.sql);
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(newSql);
+      db.exec('INSERT INTO contacts_new SELECT * FROM contacts');
+      db.exec('DROP TABLE contacts');
+      db.exec('ALTER TABLE contacts_new RENAME TO contacts');
+      for (const sql of indexes) db.exec(sql);
+      const broken = db.pragma('foreign_key_check') as unknown[];
+      if (broken.length) throw new Error('Foreign keys broken after rebuilding contacts.');
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+allowWaitingStatus();
 
 /** Adds a "Shortlisted" stage right after "Technical interview" (once; skipped if you already have one). */
 function addShortlistedStage() {

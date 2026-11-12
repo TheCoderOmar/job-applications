@@ -39,8 +39,10 @@ export interface Contact {
   favorite: number;
 }
 
-export type ContactStatus = 'message_sent' | 'chatting' | 'referred';
+export type ContactStatus = 'waiting_connection' | 'message_sent' | 'chatting' | 'referred';
 export const CONTACT_STATUS: Record<ContactStatus, { label: string; color: string }> = {
+  // A connection request you sent that they haven't accepted yet.
+  waiting_connection: { label: 'Waiting for connection', color: '#a78bfa' },
   message_sent: { label: 'Message sent', color: '#60a5fa' },
   chatting: { label: 'Chatting', color: '#fbbf24' },
   referred: { label: 'Referred', color: '#34d399' },

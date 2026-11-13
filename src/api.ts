@@ -8,6 +8,13 @@ type JobInput = Partial<Job> & {
   new_recruiters?: { full_name: string; linkedin_url: string | null; position: string | null }[];
 };
 
+export interface MenuPages {
+  quiz: boolean;
+  features: boolean;
+}
+/** Sent when Settings changes which pages are in the menu, so the menu updates right away. */
+export const MENU_EVENT = 'menu-pages';
+
 /** Progress of "Find careers pages": companies checked, and how many showed how they hire. */
 export interface CareersStatus {
   running: boolean;
@@ -42,17 +49,37 @@ export interface UpdateInfo {
   error: string | null;
   /** Why "Update now" can't run here (null when it can). */
   blocked: string | null;
+  /** What's new, from the CHANGELOG (empty when it wasn't updated). */
+  notes: string[];
 }
 
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
-  if (res.status === 204) return undefined as T;
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
-  return body as T;
+  // While the API restarts (right after an update, or after a code change) the page's own server answers 500
+  // or the connection fails. Reads wait for it (up to ~20 s) instead of showing an error.
+  const retries = !init?.method || init.method === 'GET' ? 10 : 0;
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } });
+    } catch (e) {
+      if (attempt < retries) {
+        await wait(Math.min(500 * 2 ** attempt, 3000));
+        continue;
+      }
+      throw e;
+    }
+    if (res.status === 204) return undefined as T;
+    const body = await res.json().catch(() => null);
+    // Our API always explains its errors as JSON; a bare 5xx means it isn't up yet.
+    if (res.status >= 500 && !body?.error && attempt < retries) {
+      await wait(Math.min(500 * 2 ** attempt, 3000));
+      continue;
+    }
+    if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
+    return (body ?? {}) as T;
+  }
 }
 
 const json = (method: string, data: unknown): RequestInit => ({ method, body: JSON.stringify(data) });
@@ -67,9 +94,12 @@ export const api = {
   updateStatus: () => request<UpdateInfo>('/api/update'),
   /** Asks GitHub right now instead of using the last check. */
   checkForUpdates: () => request<UpdateInfo>('/api/update?refresh=1'),
-  applyUpdate: () => request<{ updated: number; needs_restart: boolean }>('/api/update', { method: 'POST' }),
+  applyUpdate: () => request<{ updated: number; needs_restart: boolean; notes: string[] }>('/api/update', { method: 'POST' }),
   refreshStatus: () => request<RefreshStatus>('/api/refresh-status'),
   careersStatus: () => request<CareersStatus>('/api/careers-status'),
+  /** Menu pages that are off until turned on in Settings. */
+  menu: () => request<MenuPages>('/api/settings/menu'),
+  setMenu: (data: Partial<MenuPages>) => request<MenuPages>('/api/settings/menu', json('PUT', data)),
   findCareers: (ids?: number[]) => request<CareersStatus>('/api/find-careers', json('POST', ids ? { ids } : {})),
   refreshCompanies: (ids?: number[]) => request<RefreshStatus>('/api/refresh-companies', json('POST', ids ? { ids } : {})),
   defaultCompanies: () => request<{ total: number; missing: number }>('/api/default-companies'),

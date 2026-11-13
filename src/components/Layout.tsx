@@ -1,23 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api, MENU_EVENT, type MenuPages } from '../api';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import Icon, { type IconName } from './Icon';
 import UpdateBanner from './UpdateBanner';
 
-const nav: { to: string; label: string; icon: IconName }[] = [
+// `optional`: off until turned on in Settings → Menu.
+const nav: { to: string; label: string; icon: IconName; optional?: keyof MenuPages }[] = [
   { to: '/', label: 'Dashboard', icon: 'dashboard' },
   { to: '/companies', label: 'Companies', icon: 'building' },
   { to: '/jobs', label: 'Applications', icon: 'briefcase' },
   { to: '/cvs', label: 'CVs', icon: 'file' },
-  { to: '/quiz', label: 'Quiz', icon: 'quiz' },
+  { to: '/quiz', label: 'Quiz', icon: 'quiz', optional: 'quiz' },
   { to: '/openings', label: 'Openings', icon: 'search' },
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/map', label: 'Map', icon: 'map' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
-  { to: '/features', label: 'Features', icon: 'list' },
+  { to: '/features', label: 'Features', icon: 'list', optional: 'features' },
 ];
 
 export default function Layout() {
   const { pathname } = useLocation();
+  const [menu, setMenu] = useState<MenuPages>({ quiz: false, features: false });
+  useEffect(() => {
+    api.menu().then(setMenu, () => {});
+    const onChange = (e: Event) => setMenu((e as CustomEvent<MenuPages>).detail);
+    window.addEventListener(MENU_EVENT, onChange);
+    return () => window.removeEventListener(MENU_EVENT, onChange);
+  }, []);
+  // A hidden page you're on stays in the menu until you leave it.
+  const items = nav.filter((i) => !i.optional || menu[i.optional] || pathname.startsWith(i.to));
   const fullBleed = pathname === '/map';
   // Desktop only: full menu or icons only. Remembered in this browser.
   const [collapsed, setCollapsed] = useState(() => {
@@ -50,7 +61,7 @@ export default function Layout() {
           </div>
         </div>
         <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto md:flex-col">
-          {nav.map((item) => (
+          {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

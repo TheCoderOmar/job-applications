@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test server/*.test.ts src/components/*.test.ts",
+    "features:export": "tsx scripts/export-features.ts",
     "companies:export": "tsx scripts/export-default-companies.ts",
     "shortcut": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-shortcut.ps1"
   },

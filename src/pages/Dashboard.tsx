@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Motivation from '../components/Motivation';
 import { Link } from 'react-router-dom';
 import {
   Bar,
@@ -180,6 +181,8 @@ export default function Dashboard() {
           </Link>
         </div>
       </header>
+
+      <Motivation stats={stats} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Tile label="Companies" value={totals.companies} hint={`${totals.remote_companies} remote`} to="/companies" />

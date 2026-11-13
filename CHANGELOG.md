@@ -16,6 +16,7 @@ All notable changes to Job Applications.
 - Contacts: a **Waiting for connection** status, for people you sent a connection request to
 
 ### Fixed
+- Settings crashed when no home location was set (since the update that waits for the server)
 - Right after an update the page could show "500" until you refreshed (it loaded before the restarted server was ready); it now waits for the server, and the update waits until the server is steady before reloading
 - A job page no longer runs wider than a phone screen when the company has many connections
 

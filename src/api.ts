@@ -78,7 +78,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       continue;
     }
     if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
-    return (body ?? {}) as T;
+    // Some answers are a plain null ("no home location set"): pass it on as null, never as {}.
+    return body as T;
   }
 }
 

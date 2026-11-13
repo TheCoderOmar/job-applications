@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { CHANNEL_LABELS, WORK_TYPE_LABELS, type Contact, type Cv, type JobDetail as JobDetailT, type Stage } from '../types';
-import { ConnectionsPanel, ReferrerChip } from '../components/Contacts';
+import { ConnectionsPanel, ReferrerChip, ReferrerPicker } from '../components/Contacts';
 import StepsEditor from '../components/Steps';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
@@ -48,8 +48,15 @@ export default function JobDetail() {
   }
 
   async function setReferrers(next: Contact[]) {
-    const { history: _h, referrers: _r, ...fields } = job!;
+    const { history: _h, referrers: _r, recruiters: _rc, ...fields } = job!;
     await api.updateJob(job!.id, { ...fields, referrer_ids: next.map((c) => c.id) });
+    load();
+  }
+
+  const [addingRecruiter, setAddingRecruiter] = useState(false);
+  async function setRecruiters(next: Contact[]) {
+    const { history: _h, referrers: _r, recruiters: _rc, ...fields } = job!;
+    await api.updateJob(job!.id, { ...fields, recruiter_ids: next.map((c) => c.id) });
     load();
   }
 
@@ -149,15 +156,46 @@ export default function JobDetail() {
                 <span>Not set</span>
               )}
             </div>
-            <div className="flex justify-between gap-4">
-              <span className="shrink-0 text-muted">Recruiter</span>
-              {job.recruiter_id ? (
-                <span className="flex min-w-0 flex-col items-end gap-0.5 text-right">
-                  <ReferrerChip c={{ id: job.recruiter_id, full_name: job.recruiter_name ?? '', linkedin_url: job.recruiter_linkedin } as Contact} />
-                  {job.recruiter_position && <span className="break-words text-xs text-muted">{job.recruiter_position}</span>}
-                </span>
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-4">
+                <span className="shrink-0 text-muted">{job.recruiters.length > 1 ? 'Recruiters' : 'Recruiter'}</span>
+                {job.recruiters.length ? (
+                  <div className="flex min-w-0 flex-col items-end gap-1.5 text-right">
+                    {job.recruiters.map((c) => (
+                      <span key={c.id} className="flex min-w-0 flex-col items-end gap-0.5">
+                        <ReferrerChip c={c} onRemove={() => setRecruiters(job.recruiters.filter((x) => x.id !== c.id))} />
+                        {c.position && <span className="break-words text-xs text-muted">{c.position}</span>}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span>Not set</span>
+                )}
+              </div>
+              {addingRecruiter ? (
+                <div className="space-y-1">
+                  <ReferrerPicker
+                    max={5}
+                    noun="recruiters"
+                    value={job.recruiters}
+                    onChange={(next) => {
+                      setRecruiters(next);
+                      setAddingRecruiter(false);
+                    }}
+                    companyId={job.company_id}
+                  />
+                  <button className="text-xs text-muted hover:text-fg" onClick={() => setAddingRecruiter(false)}>
+                    Cancel
+                  </button>
+                </div>
               ) : (
-                <span>Not set</span>
+                job.recruiters.length < 5 && (
+                  <div className="flex justify-end">
+                    <button className="flex items-center gap-1 text-xs font-medium text-brand-light hover:underline" onClick={() => setAddingRecruiter(true)}>
+                      <Icon name="plus" className="h-3.5 w-3.5" /> Add recruiter
+                    </button>
+                  </div>
+                )
               )}
             </div>
             <div className="flex justify-between gap-4">

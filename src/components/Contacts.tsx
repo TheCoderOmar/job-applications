@@ -168,12 +168,23 @@ interface PickerProps {
   onChange: (v: Contact[]) => void;
   /** Company being applied to: its connections are suggested first. */
   companyId?: number;
-  /** How many people can be picked (3 referrers; 1 recruiter). */
+  /** How many people can be picked (3 referrers, 5 recruiters). */
   max?: number;
+  /** What the picked people are called ("referrers", "recruiters"), for the "maximum" note. */
+  noun?: string;
+}
+
+const PROFILE_RE = /linkedin\.com\/in\/([^/?#\s]+)/i;
+
+/** "marianne-narouz-4a1b2c" → "Marianne Narouz" (the id at the end dropped). */
+export function nameFromProfileLink(link: string): string {
+  const slug = decodeURIComponent(PROFILE_RE.exec(link)?.[1] ?? '');
+  const words = slug.split('-').filter((w) => w && !(/\d/.test(w) && w.length >= 4));
+  return words.map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
 /** Up to three referrers, picked from your contacts (connections at the company first) or added by name. */
-export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS }: PickerProps) {
+export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS, noun = 'referrers' }: PickerProps) {
   const [all, setAll] = useState<Contact[]>([]);
   const [atCompany, setAtCompany] = useState<Contact[]>([]);
   const [q, setQ] = useState('');
@@ -191,7 +202,7 @@ export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS
   const chosen = new Set(value.map((c) => c.id));
   const full = value.length >= max;
   const options = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    const needle = PROFILE_RE.test(q) ? '\u0000' : q.trim().toLowerCase();
     const atIds = new Set(atCompany.map((c) => c.id));
     const match = (c: Contact) =>
       !needle || [c.full_name, c.company, c.position].some((v) => v?.toLowerCase().includes(needle));
@@ -205,14 +216,44 @@ export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS
     setOpen(false);
   };
 
+  const isLink = PROFILE_RE.test(q);
+  const [adding, setAdding] = useState(false);
+
   async function addNew() {
     setError('');
     try {
+      if (isLink) return await addFromLink(q.trim());
       const c = await api.createContact({ full_name: q.trim() });
       setAll((prev) => [...prev, c]);
       pick(c);
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  /** A LinkedIn profile link: the contact you have with it, else a new one read from LinkedIn (or named from the link). */
+  async function addFromLink(link: string) {
+    const slug = (u: string | null | undefined) => PROFILE_RE.exec(u ?? '')?.[1]?.toLowerCase() ?? null;
+    const have = all.find((c) => slug(c.linkedin_url) && slug(c.linkedin_url) === slug(link));
+    if (have) return pick(have);
+    setAdding(true);
+    try {
+      const p = await api.linkedInProfile(link).catch(() => null);
+      if (p?.existing) {
+        const known = all.find((c) => c.id === p.existing!.id);
+        if (known) return pick(known);
+      }
+      const url = p?.linkedin_url ?? `https://www.linkedin.com/in/${PROFILE_RE.exec(link)![1]}`;
+      const c = await api.createContact({
+        full_name: p?.full_name || nameFromProfileLink(link) || 'LinkedIn contact',
+        position: p?.position ?? null,
+        company: p?.company ?? null,
+        linkedin_url: url,
+      });
+      setAll((prev) => [...prev, c]);
+      pick(c);
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -228,12 +269,17 @@ export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS
         </div>
       )}
       {full ? (
-        max > 1 && <p className="text-xs text-muted">That's the maximum of {max} referrers.</p>
+        max > 1 && <p className="text-xs text-muted">That's the maximum of {max} {noun}.</p>
       ) : (
         <div className="relative">
           <input
             className="input"
-            placeholder={atCompany.length ? `Search people · ${atCompany.length} of your connections work here` : 'Search people or type a new name'}
+            placeholder={
+              atCompany.length
+                ? `Search people · ${atCompany.length} of your connections work here`
+                : 'Search people, type a new name or paste a LinkedIn profile link'
+            }
+            disabled={adding}
             value={q}
             onChange={(e) => (setQ(e.target.value), setOpen(true))}
             onFocus={() => setOpen(true)}
@@ -265,7 +311,7 @@ export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS
                   </button>
                 </li>
               ))}
-              {q.trim() && !options.some((c) => c.full_name.toLowerCase() === q.trim().toLowerCase()) && (
+              {q.trim() && (isLink || !options.some((c) => c.full_name.toLowerCase() === q.trim().toLowerCase())) && (
                 <li>
                   <button
                     type="button"
@@ -273,7 +319,8 @@ export function ReferrerPicker({ value, onChange, companyId, max = MAX_REFERRERS
                     onClick={addNew}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-brand-light hover:bg-raised"
                   >
-                    <Icon name="plus" /> Add "{q.trim()}" as a new person
+                    <Icon name={isLink ? 'linkedin' : 'plus'} />{' '}
+                    {adding ? 'Adding…' : isLink ? 'Add this person from their LinkedIn link' : `Add "${q.trim()}" as a new person`}
                   </button>
                 </li>
               )}

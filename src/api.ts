@@ -1,6 +1,12 @@
 import type { Company, CompanyInput, Contact, ContactStatus, Cv, FoundLocation, QuizQuestion, QuizSet, QuizTypes, QuizWhich, LinkedInCompany, LogoStatus, Opening, ScanStatus, Home, Job, JobDetail, Stage, Stats, HiringPerson } from './types';
 
-type JobInput = Partial<Job> & { referrer_ids?: number[] };
+type JobInput = Partial<Job> & {
+  referrer_ids?: number[];
+  /** Contacts, in order (up to 5). */
+  recruiter_ids?: number[];
+  /** People who aren't contacts yet (from a posting's hiring team): found or created on save. */
+  new_recruiters?: { full_name: string; linkedin_url: string | null; position: string | null }[];
+};
 
 /** Progress of "Refresh from LinkedIn" over your companies. */
 export interface RefreshStatus {

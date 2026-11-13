@@ -5,8 +5,9 @@ All notable changes to Job Applications.
 ## [Unreleased]
 
 ### Added
-- Applications have a **Recruiter**: one of your contacts, picked in the form and shown on the job page
-- Browser extension 1.4.0: importing a LinkedIn job also takes the person under **Meet the hiring team** as the recruiter, and adds them to your contacts (with their profile link and title) if they aren't there yet
+- Applications have **recruiters** (up to 5): pick a contact, type a name or paste a LinkedIn profile link, in the form or with **Add recruiter** on the job page
+- Browser extension 1.4.0: importing a LinkedIn job takes everyone under **Meet the hiring team** as recruiters, and adds them to your contacts (with their profile link and title) if they aren't there yet
+- A **Features** page in the menu lists everything the app can do, with a search box
 
 - Contacts: a **Waiting for connection** status, for people you sent a connection request to
 

@@ -284,6 +284,22 @@ function allowWaitingStatus() {
 }
 allowWaitingStatus();
 
+// A job's recruiters (LinkedIn's "Meet the hiring team" can list several): contacts, in order.
+// Replaces jobs.recruiter_id (one recruiter), which is copied in once and no longer used.
+db.exec(`CREATE TABLE IF NOT EXISTS job_recruiters (
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  slot INTEGER NOT NULL,
+  PRIMARY KEY (job_id, contact_id)
+)`);
+if (!db.prepare(`SELECT 1 FROM settings WHERE key = 'job_recruiters_added'`).get()) {
+  db.transaction(() => {
+    db.exec(`INSERT OR IGNORE INTO job_recruiters (job_id, contact_id, slot)
+             SELECT id, recruiter_id, 1 FROM jobs WHERE recruiter_id IS NOT NULL AND recruiter_id IN (SELECT id FROM contacts)`);
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('job_recruiters_added', '1')`).run();
+  })();
+}
+
 /** Adds a "Shortlisted" stage right after "Technical interview" (once; skipped if you already have one). */
 function addShortlistedStage() {
   if (db.prepare(`SELECT 1 FROM settings WHERE key = 'shortlisted_stage_added'`).get()) return;

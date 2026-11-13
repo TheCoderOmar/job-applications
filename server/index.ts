@@ -429,12 +429,11 @@ const jobSelect = `
          (SELECT CASE WHEN l.status = 'found' THEN l.fetched_at END FROM company_logos l WHERE l.company_id = j.company_id) AS logo_at,
          c.name AS company_name, s.name AS stage_name, s.color AS stage_color, s.kind AS stage_kind, s.sort_order AS stage_order,
          cv.label AS cv_label,
-         rc.full_name AS recruiter_name, rc.linkedin_url AS recruiter_linkedin, rc.position AS recruiter_position
+         (SELECT COUNT(*) FROM job_recruiters jr WHERE jr.job_id = j.id) AS recruiter_count
   FROM jobs j
   JOIN companies c ON c.id = j.company_id
   JOIN stages s ON s.id = j.stage_id
-  LEFT JOIN cvs cv ON cv.id = j.cv_id
-  LEFT JOIN contacts rc ON rc.id = j.recruiter_id`;
+  LEFT JOIN cvs cv ON cv.id = j.cv_id`;
 
 function normalizeJob(body: Row) {
   const j: Row = {};
@@ -734,36 +733,55 @@ function saveReferrers(jobId: number | bigint, ids: number[]) {
     db.prepare(`UPDATE contacts SET status = 'referred' WHERE status IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 }
 
+const MAX_RECRUITERS = 5;
+type NewPerson = { full_name?: string; name?: string; linkedin_url?: string | null; position?: string | null; headline?: string | null };
+
 /**
- * The recruiter from a request body: `recruiter_id` (a contact, or null to clear it), or `recruiter`
- * ({ full_name, linkedin_url?, position? }, e.g. from an imported posting's hiring team): the contact with that
- * LinkedIn page or name, created when you don't have them yet. undefined when the body doesn't mention it.
+ * The recruiters from a request body: `recruiter_ids` (contacts you have, in order) plus `new_recruiters`
+ * ([{ full_name, linkedin_url?, position? }], e.g. from a posting's hiring team: found by LinkedIn page or name,
+ * created when you don't have them yet). undefined when the body mentions neither; a string is an error.
  */
-function recruiterOf(body: Row, companyId: number): number | null | undefined | string {
-  const p = body.recruiter as { full_name?: string; name?: string; linkedin_url?: string | null; position?: string | null; headline?: string | null } | null | undefined;
-  if (p && typeof p === 'object') {
-    const name = String(p.full_name ?? p.name ?? '').trim();
-    if (!name) return 'The recruiter needs a name.';
-    const url = profileUrl(p.linkedin_url);
-    const known = (url
-      ? db.prepare(`SELECT id FROM contacts WHERE rtrim(linkedin_url, '/') = ? COLLATE NOCASE`).get(url)
-      : db.prepare(`SELECT id FROM contacts WHERE full_name = ? COLLATE NOCASE ORDER BY linkedin_url IS NULL LIMIT 1`).get(name)) as
-      | { id: number }
-      | undefined;
-    if (known) return known.id;
-    const company = (db.prepare('SELECT name FROM companies WHERE id = ?').get(companyId) as { name: string } | undefined)?.name ?? null;
-    const position = String(p.position ?? p.headline ?? '').trim() || null;
-    return Number(
-      db
-        .prepare(`INSERT INTO contacts (full_name, company, position, linkedin_url, source) VALUES (?, ?, ?, ?, 'manual')`)
-        .run(name, company, position, url).lastInsertRowid,
-    );
-  }
-  if (!('recruiter_id' in body)) return undefined;
-  const id = numOrNull(body.recruiter_id);
-  if (id === null) return null;
-  return db.prepare('SELECT 1 FROM contacts WHERE id = ?').get(id) ? id : 'That recruiter no longer exists.';
+function recruitersIn(body: Row): { ids: number[]; people: NewPerson[] } | undefined | string {
+  if (!('recruiter_ids' in body) && !('new_recruiters' in body)) return undefined;
+  const raw = Array.isArray(body.recruiter_ids) ? body.recruiter_ids : [];
+  const ids = [...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  const people = (Array.isArray(body.new_recruiters) ? body.new_recruiters : []) as NewPerson[];
+  if (people.some((p) => !String(p?.full_name ?? p?.name ?? '').trim())) return 'Each recruiter needs a name.';
+  if (ids.length + people.length > MAX_RECRUITERS) return `At most ${MAX_RECRUITERS} recruiters per application.`;
+  if (ids.some((id) => !db.prepare('SELECT 1 FROM contacts WHERE id = ?').get(id))) return 'One of the recruiters no longer exists.';
+  return { ids, people };
 }
+
+/** The contact for someone from a hiring team: the one with that LinkedIn page (or name), else a new one at the company. */
+function contactFor(p: NewPerson, companyId: number): number {
+  const name = String(p.full_name ?? p.name ?? '').trim();
+  const url = profileUrl(p.linkedin_url);
+  const known = (url
+    ? db.prepare(`SELECT id FROM contacts WHERE rtrim(linkedin_url, '/') = ? COLLATE NOCASE`).get(url)
+    : db.prepare(`SELECT id FROM contacts WHERE full_name = ? COLLATE NOCASE ORDER BY linkedin_url IS NULL LIMIT 1`).get(name)) as
+    | { id: number }
+    | undefined;
+  if (known) return known.id;
+  const company = (db.prepare('SELECT name FROM companies WHERE id = ?').get(companyId) as { name: string } | undefined)?.name ?? null;
+  const position = String(p.position ?? p.headline ?? '').trim() || null;
+  return Number(
+    db
+      .prepare(`INSERT INTO contacts (full_name, company, position, linkedin_url, source) VALUES (?, ?, ?, ?, 'manual')`)
+      .run(name, company, position, url).lastInsertRowid,
+  );
+}
+
+function saveRecruiters(jobId: number | bigint, r: { ids: number[]; people: NewPerson[] }, companyId: number) {
+  const ids = [...new Set([...r.ids, ...r.people.map((p) => contactFor(p, companyId))])].slice(0, MAX_RECRUITERS);
+  db.prepare('DELETE FROM job_recruiters WHERE job_id = ?').run(jobId);
+  const insert = db.prepare('INSERT INTO job_recruiters (job_id, contact_id, slot) VALUES (?, ?, ?)');
+  ids.forEach((id, i) => insert.run(jobId, id, i + 1));
+}
+
+const recruitersOf = (jobId: number | string) =>
+  db
+    .prepare(`SELECT c.* FROM job_recruiters r JOIN contacts c ON c.id = r.contact_id WHERE r.job_id = ? ORDER BY r.slot`)
+    .all(jobId);
 
 const referrersOf = (jobId: number | string) =>
   db
@@ -810,7 +828,7 @@ app.get('/api/jobs/:id', (req, res) => {
        WHERE h.job_id = ? ORDER BY h.changed_at, h.id`,
     )
     .all(req.params.id);
-  res.json({ ...job, history, referrers: referrersOf(req.params.id) });
+  res.json({ ...job, history, referrers: referrersOf(req.params.id), recruiters: recruitersOf(req.params.id) });
 });
 
 app.post('/api/jobs', (req, res) => {
@@ -822,10 +840,8 @@ app.post('/api/jobs', (req, res) => {
   if (!j.company_id) return res.status(400).json({ error: 'Company is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });
-  if (!req.body.recruiter && 'recruiter_id' in req.body) {
-    const rec = recruiterOf({ recruiter_id: req.body.recruiter_id }, j.company_id as number);
-    if (typeof rec === 'string') return res.status(400).json({ error: rec });
-  }
+  const recs = recruitersIn(req.body);
+  if (typeof recs === 'string') return res.status(400).json({ error: recs });
   const id = db.transaction(() => {
     const cols = JOB_FIELDS.join(', ');
     const params = JOB_FIELDS.map((f) => '@' + f).join(', ');
@@ -833,8 +849,7 @@ app.post('/api/jobs', (req, res) => {
     db.prepare('INSERT INTO stage_history (job_id, stage_id) VALUES (?, ?)').run(info.lastInsertRowid, j.stage_id);
     alignAppliedStep(info.lastInsertRowid);
     if (refs) saveReferrers(info.lastInsertRowid, refs);
-    const rec = recruiterOf(req.body, j.company_id as number);
-    if (typeof rec !== 'string' && rec !== undefined) db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?').run(rec, info.lastInsertRowid);
+    if (recs) saveRecruiters(info.lastInsertRowid, recs, j.company_id as number);
     return info.lastInsertRowid;
   })();
   queueDescriptionFill(id);
@@ -851,10 +866,8 @@ app.put('/api/jobs/:id', (req, res) => {
   if (!j.title) return res.status(400).json({ error: 'Title is required' });
   const refs = referrerIds(req.body);
   if (typeof refs === 'string') return res.status(400).json({ error: refs });
-  if (!req.body.recruiter && 'recruiter_id' in req.body) {
-    const rec = recruiterOf({ recruiter_id: req.body.recruiter_id }, j.company_id as number);
-    if (typeof rec === 'string') return res.status(400).json({ error: rec });
-  }
+  const recs = recruitersIn(req.body);
+  if (typeof recs === 'string') return res.status(400).json({ error: recs });
   db.transaction(() => {
     const sets = JOB_FIELDS.map((f) => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE jobs SET ${sets}, updated_at = datetime('now') WHERE id = @id`).run({ ...j, id: req.params.id });
@@ -863,8 +876,7 @@ app.put('/api/jobs/:id', (req, res) => {
     }
     if (prev.applied_date !== j.applied_date) alignAppliedStep(req.params.id);
     if (refs) saveReferrers(Number(req.params.id), refs);
-    const rec = recruiterOf(req.body, j.company_id as number);
-    if (typeof rec !== 'string' && rec !== undefined) db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?').run(rec, req.params.id);
+    if (recs) saveRecruiters(Number(req.params.id), recs, j.company_id as number);
   })();
   queueDescriptionFill(req.params.id);
   ghostStaleApplications(); // an old application saved now is ghosted straight away
@@ -1764,6 +1776,7 @@ app.get('/api/export', (_req, res) => {
     stage_history: db.prepare('SELECT * FROM stage_history ORDER BY id').all(),
     contacts: db.prepare('SELECT * FROM contacts ORDER BY id').all(),
     job_referrers: db.prepare('SELECT * FROM job_referrers').all(),
+    job_recruiters: db.prepare('SELECT * FROM job_recruiters').all(),
     company_logos: (db.prepare('SELECT * FROM company_logos').all() as Row[]).map((l) => ({
       ...l,
       data: l.data ? (l.data as Buffer).toString('base64') : null,
@@ -1787,11 +1800,12 @@ app.post(
   '/api/import',
   wrap(async (req, res) => {
     const {
-      mode = 'merge', stages = [], companies = [], company_locations, jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
+      mode = 'merge', stages = [], companies = [], company_locations, jobs = [], stage_history = [], settings = [], contacts = [], job_referrers = [], job_recruiters, company_logos = [], cvs = [], quiz_sets = [], quiz_questions = [], quiz_attempts = [],
     } = req.body as {
       company_locations?: Row[];
       contacts?: Row[];
       job_referrers?: Row[];
+      job_recruiters?: Row[];
       company_logos?: Row[];
       cvs?: Row[];
       quiz_sets?: Row[];
@@ -1807,7 +1821,7 @@ app.post(
 
     if (mode === 'replace') {
       db.transaction(() => {
-        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_locations; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
+        db.exec('DELETE FROM quiz_attempts; DELETE FROM quiz_questions; DELETE FROM quiz_sets; DELETE FROM company_locations; DELETE FROM company_logos; DELETE FROM job_referrers; DELETE FROM job_recruiters; DELETE FROM contacts; DELETE FROM stage_history; DELETE FROM jobs; DELETE FROM cvs; DELETE FROM companies; DELETE FROM stages; DELETE FROM settings;');
         const insertAll = (table: string, rows: Row[]) => {
           for (const r of rows) {
             const keys = Object.keys(r);
@@ -1824,8 +1838,12 @@ app.post(
         insertAll('jobs', jobs.map(({ recruiter_id: _r, ...j }) => j));
         insertAll('stage_history', stage_history);
         insertAll('contacts', contacts);
-        const setRecruiter = db.prepare('UPDATE jobs SET recruiter_id = ? WHERE id = ?');
-        for (const j of jobs) if (j.recruiter_id) setRecruiter.run(j.recruiter_id, j.id);
+        // A backup from before several recruiters: each job's single recruiter becomes its first one.
+        if (Array.isArray(job_recruiters)) insertAll('job_recruiters', job_recruiters);
+        else {
+          const add = db.prepare('INSERT OR IGNORE INTO job_recruiters (job_id, contact_id, slot) VALUES (?, ?, 1)');
+          for (const j of jobs) if (j.recruiter_id) add.run(j.id, j.recruiter_id);
+        }
         insertAll('job_referrers', job_referrers);
         insertAll('company_logos', company_logos.map((l) => ({ ...l, data: l.data ? Buffer.from(String(l.data), 'base64') : null })));
         insertAll('settings', settings);

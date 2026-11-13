@@ -4,7 +4,7 @@
 
 Local job-application tracker: every company, job and stage, with LinkedIn imports, contacts, a company map and a flow chart of where applications went.
 
-**New here?** Start with the [getting started guide](docs/getting-started.md): install, first company and application, browser extension, LinkedIn contacts and backups.
+**New here?** Start with the [getting started guide](docs/getting-started.md): install, first company and application, browser extension, LinkedIn contacts and backups. Inside the app, **Features** in the menu lists everything it can do.
 
 ## Install on Windows (one double-click)
 
@@ -58,7 +58,7 @@ You can rename, recolor, reorder, add, and delete stages in Settings. A job coun
 ## Applications: channel, referrers, connections
 
 - **Applied via**: Email, Company website, LinkedIn, Wuzzuf or Other (a Wuzzuf job import picks Wuzzuf by itself), plus the address or link you used.
-- **Recruiter**: the person hiring for the job (one of your contacts). Importing a LinkedIn job with the browser extension fills it from the posting's **Meet the hiring team**, and adds them to your contacts if they aren't there yet.
+- **Recruiters**: up to 5 people hiring for the job. Pick a contact, type a name or paste someone's LinkedIn profile link, in the form or with **Add recruiter** on the job page. Importing a LinkedIn job with the browser extension adds everyone under the posting's **Meet the hiring team**, and adds them to your contacts if they aren't there yet.
 - **Referred by**: up to 3 people per application (optional). Pick from your contacts (connections at that company are listed first) or type a new name.
 - **Contacts → Import LinkedIn export**: on LinkedIn go to *Settings & Privacy → Data privacy → Get a copy of your data*, tick **Connections** (or, if it isn't listed, choose the larger archive "including connections"), then pick the `.zip` LinkedIn emails you. Only `Connections.csv` and `messages.csv` are read from it. Import it again any time; nobody is duplicated. Each job and company page then lists **your connections at that company**.
 - **Status and favourites**: give each person a status (**Waiting for connection**, **Message sent**, **Chatting**, **Referred**) right in the list, filter by it, and star people to keep them on the **Favourites** tab. Adding someone as a referrer marks them Referred.

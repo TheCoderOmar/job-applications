@@ -7,6 +7,7 @@ import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
 import MapPage from './pages/MapPage';
 import Settings from './pages/Settings';
+import Features from './pages/Features';
 import Contacts from './pages/Contacts';
 import Openings from './pages/Openings';
 import QuickAdd from './pages/QuickAdd';
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="contacts" element={<Contacts />} />
         <Route path="map" element={<MapPage />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="features" element={<Features />} />
       </Route>
     </Routes>
   );

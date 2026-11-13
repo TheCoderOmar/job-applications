@@ -13,6 +13,7 @@ const nav: { to: string; label: string; icon: IconName }[] = [
   { to: '/contacts', label: 'Contacts', icon: 'users' },
   { to: '/map', label: 'Map', icon: 'map' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
+  { to: '/features', label: 'Features', icon: 'list' },
 ];
 
 export default function Layout() {

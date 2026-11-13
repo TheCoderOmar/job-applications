@@ -113,11 +113,8 @@ export interface Job {
   /** The CV you applied with. */
   cv_id: number | null;
   cv_label: string | null;
-  /** The recruiter (from LinkedIn's "Meet the hiring team", or picked by hand): one of your contacts. */
-  recruiter_id: number | null;
-  recruiter_name: string | null;
-  recruiter_linkedin: string | null;
-  recruiter_position: string | null;
+  /** How many recruiters (contacts from LinkedIn's "Meet the hiring team", or added by hand). */
+  recruiter_count: number;
   referrer_count: number;
   starred: 0 | 1;
   /** Furthest stage reached that isn't a closed-lost one, e.g. "HR interview" for "ghosted after HR interview". */
@@ -194,6 +191,7 @@ export interface HistoryEntry {
 export interface JobDetail extends Job {
   history: HistoryEntry[];
   referrers: Contact[];
+  recruiters: Contact[];
 }
 
 export interface SankeyData {

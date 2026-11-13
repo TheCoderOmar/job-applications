@@ -3,13 +3,15 @@ import { api } from '../api';
 import { CHANNEL_LABELS, type ApplyChannel, type Company, type CompanyInput, type Contact, type Cv, type HiringPerson, type Job, type JobDetail, type Stage } from '../types';
 import { Link } from 'react-router-dom';
 import { ReferrerChip, ReferrerPicker } from './Contacts';
+
+const MAX_RECRUITERS = 5;
 import StepsEditor from './Steps';
 import Icon from './Icon';
 import DateInput from './DateInput';
 import { todayIso } from '../dates';
 
 interface Props {
-  initial?: Partial<Job> & { referrers?: Contact[] };
+  initial?: Partial<Job> & { referrers?: Contact[]; recruiters?: Contact[] };
   onSaved: (j: Job) => void;
   onCancel: () => void;
   /** Editing only: shows "Delete application" (asks first, then calls this once it's gone). */
@@ -35,31 +37,31 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
   const [cvs, setCvs] = useState<Cv[]>([]);
   const [d, setD] = useState<Partial<Job>>({ location_type: 'unknown', ...initial });
   const [referrers, setReferrers] = useState<Contact[]>(initial?.referrers ?? []);
-  // The recruiter: one of your contacts, or someone from the posting's hiring team who becomes a contact on save.
-  const [recruiter, setRecruiter] = useState<Contact | null>(() =>
-    initial?.recruiter_id
-      ? ({ id: initial.recruiter_id, full_name: initial.recruiter_name ?? '', linkedin_url: initial.recruiter_linkedin ?? null, position: initial.recruiter_position ?? null } as Contact)
-      : null,
-  );
-  const [newRecruiter, setNewRecruiter] = useState<HiringPerson | null>(null);
+  // Recruiters: your contacts, plus people from the posting's hiring team who become contacts when you save.
+  const [recruiters, setRecruiters] = useState<Contact[]>(initial?.recruiters ?? []);
+  const [newRecruiters, setNewRecruiters] = useState<HiringPerson[]>([]);
 
-  /** The posting's hiring team → the recruiter: a contact you have (same LinkedIn page or name), or a new one made on save. */
-  async function takeRecruiter(team: HiringPerson[] | undefined, replace: boolean): Promise<string | null> {
-    const p = team?.[0];
-    if (!p || (!replace && (recruiter || newRecruiter))) return null;
+  /** The posting's hiring team → recruiters: contacts you have (same LinkedIn page or name), or new ones made on save. */
+  async function takeRecruiters(team: HiringPerson[] | undefined, replace: boolean): Promise<string | null> {
+    if (!team?.length) return null;
     const slug = (u: string | null | undefined) => /\/in\/([^/?#]+)/i.exec(u ?? '')?.[1]?.toLowerCase() ?? null;
     const all = await api.contacts().catch(() => [] as Contact[]);
-    const known =
-      (slug(p.linkedin_url) && all.find((c) => slug(c.linkedin_url) === slug(p.linkedin_url))) ||
-      all.find((c) => c.full_name.trim().toLowerCase() === p.name.trim().toLowerCase());
-    if (known) {
-      setRecruiter(known);
-      setNewRecruiter(null);
-      return `recruiter (${known.full_name})`;
+    const known: Contact[] = replace ? [] : [...recruiters];
+    const fresh: HiringPerson[] = replace ? [] : [...newRecruiters];
+    const same = (a: { linkedin_url: string | null }, b: { linkedin_url: string | null }, an: string, bn: string) =>
+      (slug(a.linkedin_url) && slug(a.linkedin_url) === slug(b.linkedin_url)) || an.trim().toLowerCase() === bn.trim().toLowerCase();
+    const added: string[] = [];
+    for (const p of team) {
+      if (known.length + fresh.length >= MAX_RECRUITERS) break;
+      if (known.some((c) => same(c, p, c.full_name, p.name)) || fresh.some((f) => same(f, p, f.name, p.name))) continue;
+      const c = all.find((x) => same(x, p, x.full_name, p.name));
+      if (c) known.push(c);
+      else fresh.push(p);
+      added.push(c ? c.full_name : `${p.name} (new contact)`);
     }
-    setRecruiter(null);
-    setNewRecruiter(p);
-    return `recruiter (${p.name}, added to your contacts when you save)`;
+    setRecruiters(known);
+    setNewRecruiters(fresh);
+    return added.length ? `${added.length === 1 ? 'recruiter' : 'recruiters'} (${added.join(', ')})` : null;
   }
   const [error, setError] = useState('');
   const [liStatus, setLiStatus] = useState<{ text: string; error?: boolean } | null>(null);
@@ -160,7 +162,7 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
         li.source === 'linkedin' ? 'linkedin' : li.source === 'workable' ? 'website' : li.source === 'wuzzuf' ? 'wuzzuf' : 'other';
       setCompanyWuzzuf(li.company_wuzzuf ?? null);
       const filled: string[] = [];
-      const rec = await takeRecruiter(li.hiring_team, replace);
+      const rec = await takeRecruiters(li.hiring_team, replace);
       const company = li.company ? companies.find((c) => sameName(c.name, li.company!)) : undefined;
       const ghosted = stages.find((s) => s.name.toLowerCase() === 'ghosted');
       // Work out the changes from the form as it is now, so the message below matches them.
@@ -268,15 +270,15 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
     setSaving(true);
     setError('');
     try {
-      const { referrers: _r, history: _h, ...fields } = d as Partial<Job> & { referrers?: unknown; history?: unknown };
+      const { referrers: _r, recruiters: _rc, history: _h, ...fields } = d as Partial<Job> & { referrers?: unknown; recruiters?: unknown; history?: unknown };
       // A company found on the posting but not in your list is created now, at save time.
       const company_id = fields.company_id === NEW_COMPANY ? await createNewCompany() : fields.company_id;
       const body = {
         ...fields,
         company_id,
         referrer_ids: referrers.map((c) => c.id),
-        recruiter_id: recruiter?.id ?? null,
-        ...(newRecruiter ? { recruiter: { full_name: newRecruiter.name, linkedin_url: newRecruiter.linkedin_url, position: newRecruiter.headline } } : {}),
+        recruiter_ids: recruiters.map((c) => c.id),
+        new_recruiters: newRecruiters.map((p) => ({ full_name: p.name, linkedin_url: p.linkedin_url, position: p.headline })),
       };
       const saved = isEdit ? await api.updateJob(initial!.id!, body) : await api.createJob(body);
       // An existing company without a Wuzzuf page gets the one from this Wuzzuf job (never replaces one it has).
@@ -460,17 +462,27 @@ export default function JobForm({ initial, onSaved, onCancel, onDeleted, autoImp
           )}
         </div>
         <div className="sm:col-span-2">
-          <label className="label">Recruiter (optional)</label>
-          {newRecruiter ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <ReferrerChip
-                c={{ id: 0, full_name: newRecruiter.name, linkedin_url: newRecruiter.linkedin_url, position: newRecruiter.headline } as Contact}
-                onRemove={() => setNewRecruiter(null)}
-              />
-              <span className="text-xs text-muted">From the hiring team; added to your contacts when you save.</span>
+          <label className="label">Recruiters (optional, up to 5)</label>
+          <ReferrerPicker
+            max={MAX_RECRUITERS - newRecruiters.length}
+            noun="recruiters"
+            value={recruiters}
+            onChange={setRecruiters}
+            companyId={d.company_id}
+          />
+          {newRecruiters.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              <p className="text-xs text-muted">From the hiring team, added to your contacts when you save:</p>
+              <div className="flex flex-wrap gap-2">
+                {newRecruiters.map((p, i) => (
+                  <ReferrerChip
+                    key={`${p.name}-${i}`}
+                    c={{ id: 0, full_name: p.name, linkedin_url: p.linkedin_url, position: p.headline } as Contact}
+                    onRemove={() => setNewRecruiters((list) => list.filter((_, j) => j !== i))}
+                  />
+                ))}
+              </div>
             </div>
-          ) : (
-            <ReferrerPicker max={1} value={recruiter ? [recruiter] : []} onChange={(v) => setRecruiter(v[0] ?? null)} companyId={d.company_id} />
           )}
         </div>
         <div className="sm:col-span-2">

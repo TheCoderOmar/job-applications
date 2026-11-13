@@ -329,6 +329,9 @@ async function findCareersFor(id: number) {
   if (!c) return null;
   // Only a careers page you typed is trusted; one guessed by an older openings scan is worked out again.
   const r = await findHiring({ ...c, careers_found_url: null });
+  // A website that didn't answer this time keeps what an earlier check found.
+  const before = db.prepare('SELECT hiring_via FROM companies WHERE id = ?').get(id) as { hiring_via: string | null };
+  if (!r.via && before.hiring_via && /did not answer/.test(r.note)) return { ...r, via: before.hiring_via };
   // A Wuzzuf page is already its own link; careers_found_url is a page the openings scan can read.
   const page = r.via === 'Wuzzuf' ? null : r.careers_url;
   db.prepare(
@@ -339,7 +342,7 @@ async function findCareersFor(id: number) {
 }
 
 /** All companies (or `ids`), four websites at a time, in the background. */
-function findCareers(ids?: number[]) {
+function findCareers(ids?: number[], workers = 4) {
   if (careersState.running) return false;
   const list = ids?.length ? ids : (db.prepare('SELECT id FROM companies ORDER BY name COLLATE NOCASE').all() as { id: number }[]).map((r) => r.id);
   Object.assign(careersState, { running: true, total: list.length, done: 0, found: 0, current: null });
@@ -352,7 +355,7 @@ function findCareers(ids?: number[]) {
       if (r?.via) careersState.found++;
     }
   };
-  void Promise.all([worker(), worker(), worker(), worker()]).finally(() => {
+  void Promise.all(Array.from({ length: workers }, worker)).finally(() => {
     careersState.running = false;
     careersState.current = null;
   });
@@ -362,7 +365,8 @@ function findCareers(ids?: number[]) {
 app.get('/api/careers-status', (_req, res) => res.json(careersState));
 app.post('/api/find-careers', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(Number).filter(Boolean) : undefined;
-  findCareers(ids);
+  // A list of companies (e.g. ones whose website didn't answer) goes one at a time, gentler on slow sites.
+  findCareers(ids, ids && ids.length < 60 ? 1 : 4);
   res.json(careersState);
 });
 app.post('/api/refresh-companies', (req, res) => {

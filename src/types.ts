@@ -73,6 +73,11 @@ export interface Company {
   description: string | null;
   logo_at: string | null;
   careers_found_url: string | null;
+  /** How they hire: a hiring system ("Workday"), "Careers page", "Email" or "Wuzzuf"; null when nothing was found. */
+  hiring_via: string | null;
+  careers_email: string | null;
+  hiring_note: string | null;
+  hiring_checked_at: string | null;
   openings_scanned_at: string | null;
   openings_note: string | null;
   is_remote: 0 | 1;

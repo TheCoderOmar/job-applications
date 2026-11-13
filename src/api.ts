@@ -8,6 +8,15 @@ type JobInput = Partial<Job> & {
   new_recruiters?: { full_name: string; linkedin_url: string | null; position: string | null }[];
 };
 
+/** Progress of "Find careers pages": companies checked, and how many showed how they hire. */
+export interface CareersStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  found: number;
+  current: string | null;
+}
+
 /** Progress of "Refresh from LinkedIn" over your companies. */
 export interface RefreshStatus {
   running: boolean;
@@ -60,6 +69,8 @@ export const api = {
   checkForUpdates: () => request<UpdateInfo>('/api/update?refresh=1'),
   applyUpdate: () => request<{ updated: number; needs_restart: boolean }>('/api/update', { method: 'POST' }),
   refreshStatus: () => request<RefreshStatus>('/api/refresh-status'),
+  careersStatus: () => request<CareersStatus>('/api/careers-status'),
+  findCareers: (ids?: number[]) => request<CareersStatus>('/api/find-careers', json('POST', ids ? { ids } : {})),
   refreshCompanies: (ids?: number[]) => request<RefreshStatus>('/api/refresh-companies', json('POST', ids ? { ids } : {})),
   defaultCompanies: () => request<{ total: number; missing: number }>('/api/default-companies'),
   loadDefaultCompanies: () => request<{ added: number }>('/api/default-companies', { method: 'POST' }),

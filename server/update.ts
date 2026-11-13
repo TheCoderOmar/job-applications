@@ -15,6 +15,8 @@ export interface UpdateStatus {
   behind: number;
   /** Their subjects, newest first (at most 20). */
   commits: string[];
+  /** What's new for the person using the app: the CHANGELOG lines those commits add. */
+  notes: string[];
   /** Local commits not on GitHub (then updating would need a merge, so it isn't offered). */
   ahead: number;
   /** Code files changed by hand (updating would overwrite them, so it waits). */
@@ -40,12 +42,28 @@ const blank = (repo: string): UpdateStatus => ({
   checked_at: null,
   behind: 0,
   commits: [],
+  notes: [],
   ahead: 0,
   dirty: false,
   branch: null,
   needs_restart: fs.existsSync(needsInstallFlag(repo)),
   error: null,
 });
+
+/** The changelog entries ("- Something new") added between two versions, without markdown bold. */
+export async function changelogNotes(repo: string, from: string, to: string): Promise<string[]> {
+  try {
+    const diff = await git(repo, ['diff', from, to, '--', 'CHANGELOG.md']);
+    return diff
+      .split('\n')
+      .filter((l) => /^\+\s*- /.test(l))
+      .map((l) => l.replace(/^\+\s*- /, '').replace(/\*\*/g, '').trim())
+      .filter(Boolean)
+      .slice(0, 30);
+  } catch {
+    return [];
+  }
+}
 
 /** Fetches origin and compares it with what you have. Never changes your files. */
 export async function checkForUpdate(repo = REPO, fetch = true): Promise<UpdateStatus> {
@@ -59,6 +77,7 @@ export async function checkForUpdate(repo = REPO, fetch = true): Promise<UpdateS
     s.behind = Number(await git(repo, ['rev-list', '--count', `HEAD..${upstream}`]));
     s.ahead = Number(await git(repo, ['rev-list', '--count', `${upstream}..HEAD`]));
     s.commits = s.behind ? (await git(repo, ['log', '--format=%s', '-n', '20', `HEAD..${upstream}`])).split('\n').filter(Boolean) : [];
+    s.notes = s.behind ? await changelogNotes(repo, 'HEAD', upstream) : [];
     s.dirty = !!(await git(repo, ['status', '--porcelain', '--untracked-files=no']));
     s.checked_at = new Date().toISOString();
   } catch (e) {
@@ -82,7 +101,7 @@ export function blockedReason(s: UpdateStatus): string | null {
  * Fast-forwards to origin/main. When package.json or package-lock.json changed, leaves a flag so the next start
  * runs npm install first (packages can't be replaced while the app is running).
  */
-export async function applyUpdate(repo = REPO): Promise<{ updated: number; needs_restart: boolean }> {
+export async function applyUpdate(repo = REPO): Promise<{ updated: number; needs_restart: boolean; notes: string[] }> {
   const s = await checkForUpdate(repo);
   const reason = blockedReason(s);
   if (reason) throw new Error(reason);
@@ -94,5 +113,5 @@ export async function applyUpdate(repo = REPO): Promise<{ updated: number; needs
     fs.mkdirSync(path.dirname(needsInstallFlag(repo)), { recursive: true });
     fs.writeFileSync(needsInstallFlag(repo), `${new Date().toISOString()}\n`);
   }
-  return { updated: s.behind, needs_restart };
+  return { updated: s.behind, needs_restart, notes: await changelogNotes(repo, before, 'HEAD') };
 }

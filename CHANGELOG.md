@@ -8,11 +8,15 @@ All notable changes to Job Applications.
 - Applications have **recruiters** (up to 5): pick a contact, type a name or paste a LinkedIn profile link, in the form or with **Add recruiter** on the job page
 - Browser extension 1.4.0: importing a LinkedIn job takes everyone under **Meet the hiring team** as recruiters, and adds them to your contacts (with their profile link and title) if they aren't there yet
 - **Find careers pages** on the Companies page: each company's careers page and how it hires (hiring system, careers email or Wuzzuf), found from its website, shown under **How they hire** on the company page; the openings scan reads those pages too
-- A **Features** page in the menu lists everything the app can do, with a search box
+- A **Features** page lists everything the app can do, with a search box; the same list is in [FEATURES.md](FEATURES.md)
+- **Quiz** and **Features** are off until you turn them on in **Settings → Menu**
+- The Dashboard gives you a boost: a quote of the day and how your week is going
+- Updating shows what's new: the update card lists the changelog entries, and after the app restarts a card says what the update added
 
 - Contacts: a **Waiting for connection** status, for people you sent a connection request to
 
 ### Fixed
+- Right after an update the page could show "500" until you refreshed (it loaded before the restarted server was ready); it now waits for the server, and the update waits until the server is steady before reloading
 - A job page no longer runs wider than a phone screen when the company has many connections
 
 ## [1.2.1] - 2026-11-11

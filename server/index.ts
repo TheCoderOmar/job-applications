@@ -404,6 +404,20 @@ app.post('/api/geocode/link', (req, res) => {
   res.json({ link: mapsSearchLink({ address: req.body.address ?? null, city: req.body.city ?? null, country: req.body.country ?? null }) });
 });
 
+/** Pages shown in the menu that are off until you turn them on in Settings: Quiz and Features. */
+const MENU_PAGES = ['quiz', 'features'] as const;
+const menuOut = () =>
+  Object.fromEntries(
+    MENU_PAGES.map((p) => [p, (db.prepare('SELECT value FROM settings WHERE key = ?').get(`show_${p}`) as { value: string } | undefined)?.value === '1']),
+  );
+app.get('/api/settings/menu', (_req, res) => res.json(menuOut()));
+app.put('/api/settings/menu', (req, res) => {
+  for (const p of MENU_PAGES)
+    if (typeof req.body?.[p] === 'boolean')
+      db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(`show_${p}`, req.body[p] ? '1' : '0');
+  res.json(menuOut());
+});
+
 /** Optional Google Maps key for exact pins; without one, OpenStreetMap is used. The key itself is never sent back. */
 app.get('/api/settings/google-key', (_req, res) => {
   const row = db.prepare(`SELECT value FROM settings WHERE key = 'google_maps_key'`).get() as { value: string } | undefined;

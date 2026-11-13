@@ -4,7 +4,7 @@
 
 Local job-application tracker: every company, job and stage, with LinkedIn imports, contacts, a company map and a flow chart of where applications went.
 
-**New here?** Start with the [getting started guide](docs/getting-started.md): install, first company and application, browser extension, LinkedIn contacts and backups. Inside the app, **Features** in the menu lists everything it can do.
+**New here?** Start with the [getting started guide](docs/getting-started.md): install, first company and application, browser extension, LinkedIn contacts and backups. **[Every feature](FEATURES.md)** is listed by area (also in the app: **Settings → Menu → Show Features**).
 
 ## Install on Windows (one double-click)
 
@@ -28,7 +28,7 @@ Data is stored in `data/jobs.db` (SQLite). Back it up from **Settings → Export
 
 ## Updates
 
-The app checks GitHub when it starts and every 6 hours; **Settings → Check for updates** checks right away and says when it last looked. When there's a new version, a card in the corner says **Update available** with what changed; **Update now** downloads it and the app restarts by itself. If an update brings new packages, it asks you to close the app and open it again from the desktop icon, which installs them first. (It only updates a copy installed with `git clone`, on the `main` branch, without your own code changes.)
+The app checks GitHub when it starts and every 6 hours; **Settings → Check for updates** checks right away and says when it last looked. When there's a new version, a card in the corner says **Update available** with what's new (from the changelog); once it has updated, a card lists what the update added; **Update now** downloads it and the app restarts by itself. If an update brings new packages, it asks you to close the app and open it again from the desktop icon, which installs them first. (It only updates a copy installed with `git clone`, on the `main` branch, without your own code changes.)
 
 ## Company locations
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type UpdateInfo } from '../api';
+import { api, MENU_EVENT, type MenuPages, type UpdateInfo } from '../api';
 import type { Home, Stage, StageKind } from '../types';
 import Icon from '../components/Icon';
 import { UPDATE_EVENT } from '../components/UpdateBanner';
@@ -219,6 +219,7 @@ export default function Settings() {
       </section>
 
       <UpdatesSection />
+      <MenuSection />
       <HomeSection />
       <MapSearchSection />
       <StarterCompaniesSection />
@@ -392,6 +393,53 @@ function MapSearchSection() {
       {!status && (
         <p className="mt-2 text-xs text-muted">{state?.set ? `Using Google (key ${state.hint}).` : 'Using OpenStreetMap.'}</p>
       )}
+    </section>
+  );
+}
+
+/** Pages that are off until you turn them on: Quiz and Features. */
+function MenuSection() {
+  const [menu, setMenu] = useState<MenuPages | null>(null);
+  useEffect(() => {
+    api.menu().then(setMenu);
+  }, []);
+
+  async function set(page: keyof MenuPages, on: boolean) {
+    setMenu((m) => m && { ...m, [page]: on });
+    const next = await api.setMenu({ [page]: on });
+    setMenu(next);
+    window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail: next }));
+  }
+
+  if (!menu) return null;
+  const rows: { page: keyof MenuPages; label: string; hint: string }[] = [
+    { page: 'quiz', label: 'Quiz', hint: 'Practise interview questions from question sets you import.' },
+    { page: 'features', label: 'Features', hint: 'A list of everything the app can do.' },
+  ];
+  return (
+    <section className="card p-5">
+      <h2 className="font-semibold">Menu</h2>
+      <p className="mt-0.5 text-xs text-muted">Extra pages, off until you turn them on.</p>
+      <div className="mt-3 divide-y divide-line">
+        {rows.map((r) => (
+          <label key={r.page} className="flex cursor-pointer items-center justify-between gap-4 py-2.5">
+            <span>
+              <span className="block text-sm font-medium">Show {r.label}</span>
+              <span className="block text-xs text-muted">{r.hint}</span>
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={menu[r.page]}
+              aria-label={`Show ${r.label} in the menu`}
+              onClick={() => set(r.page, !menu[r.page])}
+              className={`relative h-6 w-11 shrink-0 rounded-full border transition ${menu[r.page] ? 'border-brand bg-brand/80 shadow-glow' : 'border-line bg-ink'}`}
+            >
+              <span className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-fg transition-all ${menu[r.page] ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </label>
+        ))}
+      </div>
     </section>
   );
 }

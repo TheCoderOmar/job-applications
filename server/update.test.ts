@@ -46,13 +46,15 @@ test('finds new commits and fast-forwards to them', async () => {
   try {
     t.commit(t.dev, 'app.txt', 'v2', 'Second version');
     t.commit(t.dev, 'package.json', '{}', 'Add a package');
+    t.commit(t.dev, 'CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n### Added\n- **Recruiters** on each job\n- A Features page\n', 'Changelog');
     t.g(t.dev, 'push', '--quiet', 'origin', 'HEAD:main');
     const s = await checkForUpdate(t.user);
-    assert.equal(s.behind, 2);
-    assert.deepEqual(s.commits, ['Add a package', 'Second version']);
+    assert.equal(s.behind, 3);
+    assert.deepEqual(s.commits, ['Changelog', 'Add a package', 'Second version']);
+    assert.deepEqual(s.notes, ['Recruiters on each job', 'A Features page']);
     assert.equal(blockedReason(s), null);
     const r = await applyUpdate(t.user);
-    assert.deepEqual(r, { updated: 2, needs_restart: true });
+    assert.deepEqual(r, { updated: 3, needs_restart: true, notes: ['Recruiters on each job', 'A Features page'] });
     assert.equal(fs.readFileSync(path.join(t.user, 'app.txt'), 'utf8'), 'v2');
     assert.ok(fs.existsSync(needsInstallFlag(t.user)));
   } finally {

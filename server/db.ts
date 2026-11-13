@@ -198,6 +198,11 @@ for (const [col, type] of [
   ['careers_found_url', 'TEXT'],
   ['openings_scanned_at', 'TEXT'],
   ['openings_note', 'TEXT'],
+  // How the company hires ("Find careers pages"): the system behind its careers page, a careers email, a note.
+  ['hiring_via', 'TEXT'],
+  ['careers_email', 'TEXT'],
+  ['hiring_note', 'TEXT'],
+  ['hiring_checked_at', 'TEXT'],
 ] as const) {
   if (!companyCols2.has(col)) db.exec(`ALTER TABLE companies ADD COLUMN ${col} ${type}`);
 }

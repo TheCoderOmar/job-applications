@@ -120,6 +120,7 @@ export default function CompanyDetail() {
             {company.wuzzuf && <ExtLink href={company.wuzzuf} icon="link" label="Wuzzuf page" />}
             {company.careers_url && <ExtLink href={company.careers_url} icon="briefcase" label="Careers page" />}
           </div>
+          <HowTheyHire company={company} onChecked={load} />
           {(company.company_size || company.founded || company.headquarters || fromHome) && (
             <dl className="space-y-1.5 border-t border-line pt-4 text-sm">
               {company.headquarters && <Fact label="Headquarters" value={company.headquarters} />}
@@ -257,6 +258,47 @@ export default function CompanyDetail() {
   );
 }
 
+
+/** How the company hires: careers page, the hiring system behind it, a careers email, with "Find again". */
+function HowTheyHire({ company, onChecked }: { company: Company; onChecked: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const page = company.careers_url || company.careers_found_url;
+  const via = company.hiring_via;
+
+  async function check() {
+    setBusy(true);
+    await api.findCareers([company.id]);
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (!(await api.careersStatus()).running) break;
+    }
+    setBusy(false);
+    onChecked();
+  }
+
+  return (
+    <div className="space-y-1.5 border-t border-line pt-4 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="label !mb-0">How they hire</span>
+        <button className="text-xs font-medium text-brand-light hover:underline disabled:opacity-60" onClick={check} disabled={busy}>
+          {busy ? 'Looking…' : company.hiring_checked_at ? 'Find again' : 'Find careers page'}
+        </button>
+      </div>
+      {via && via !== 'Careers page' && via !== 'Email' && <p>Through <span className="font-medium text-fg">{via}</span></p>}
+      {page && !company.careers_url && <ExtLink href={page} icon="briefcase" label="Careers page" />}
+      {company.careers_email && (
+        <a href={`mailto:${company.careers_email}`} className="flex items-center gap-2 text-brand-light hover:underline">
+          <Icon name="link" className="h-4 w-4 shrink-0" /> <span className="truncate">{company.careers_email}</span>
+        </a>
+      )}
+      {!(via && via !== 'Careers page' && via !== 'Email') && (
+        <p className="text-xs text-muted">
+          {company.hiring_note ?? (page ? 'Careers page saved.' : 'Not looked for yet: finds the careers page on their website.')}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ExtLink({ href, icon, label }: { href: string; icon: IconName; label: string }) {
   return (

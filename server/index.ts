@@ -8,6 +8,7 @@ import { mapsSearchLink } from './geocode.js';
 import { loadDefaultCompanies, loadDefaultsOnFirstRun, readDefaults } from './defaults.js';
 import { applyUpdate, blockedReason, checkForUpdate, type UpdateStatus } from './update.js';
 import { refreshCompanies, refreshState } from './refreshCompanies.js';
+import { findHiring } from './hiring.js';
 import { parseLocationCard, parseLocationsFromHtml, tidyLocations, type ParsedLocation } from './locations.js';
 import { cleanTab, guessPostCompany, linkedInKind, type TabCompany, type TabPost, type TabProfile } from './linkedinTab.js';
 import { resolveMapsLink } from './mapsLink.js';
@@ -313,6 +314,57 @@ app.post('/api/default-companies', (_req, res) => {
  * empty details are filled and offices it doesn't have yet are added (and pinned). Nothing you typed is overwritten.
  */
 app.get('/api/refresh-status', (_req, res) => res.json(refreshState));
+
+// ---------- How each company hires ("Find careers pages") ----------
+// Not every company posts on LinkedIn: each company's website is searched for its careers page, the hiring
+// system behind it (Workday, Taleo…) and a careers email. The openings scan then reads jobs from that page.
+
+const careersState = { running: false, total: 0, done: 0, found: 0, current: null as string | null };
+
+/** One company: saves what was found (a careers page you typed is never replaced). */
+async function findCareersFor(id: number) {
+  const c = db.prepare('SELECT id, name, website, careers_url, careers_found_url, wuzzuf FROM companies WHERE id = ?').get(id) as
+    | { id: number; name: string; website: string | null; careers_url: string | null; careers_found_url: string | null; wuzzuf: string | null }
+    | undefined;
+  if (!c) return null;
+  // Only a careers page you typed is trusted; one guessed by an older openings scan is worked out again.
+  const r = await findHiring({ ...c, careers_found_url: null });
+  // A Wuzzuf page is already its own link; careers_found_url is a page the openings scan can read.
+  const page = r.via === 'Wuzzuf' ? null : r.careers_url;
+  db.prepare(
+    `UPDATE companies SET careers_found_url = COALESCE(?, careers_found_url), hiring_via = ?, careers_email = ?, hiring_note = ?,
+       hiring_checked_at = datetime('now') WHERE id = ?`,
+  ).run(page, r.via, r.email, r.note, id);
+  return r;
+}
+
+/** All companies (or `ids`), four websites at a time, in the background. */
+function findCareers(ids?: number[]) {
+  if (careersState.running) return false;
+  const list = ids?.length ? ids : (db.prepare('SELECT id FROM companies ORDER BY name COLLATE NOCASE').all() as { id: number }[]).map((r) => r.id);
+  Object.assign(careersState, { running: true, total: list.length, done: 0, found: 0, current: null });
+  const queue = [...list];
+  const worker = async () => {
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+      careersState.current = (db.prepare('SELECT name FROM companies WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? null;
+      const r = await findCareersFor(id).catch(() => null);
+      careersState.done++;
+      if (r?.via) careersState.found++;
+    }
+  };
+  void Promise.all([worker(), worker(), worker(), worker()]).finally(() => {
+    careersState.running = false;
+    careersState.current = null;
+  });
+  return true;
+}
+
+app.get('/api/careers-status', (_req, res) => res.json(careersState));
+app.post('/api/find-careers', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(Number).filter(Boolean) : undefined;
+  findCareers(ids);
+  res.json(careersState);
+});
 app.post('/api/refresh-companies', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(Number).filter(Boolean) : undefined;
   const exact = (x: string, y: string) => {
@@ -374,6 +426,8 @@ app.post(
     const id = Number(info.lastInsertRowid);
     await saveCompanyLocations(id, req.body);
     if (c.linkedin || c.website) queueLogos([id]);
+    // A new company's careers page is looked up in the background (not while a full run is going).
+    if (c.website && !careersState.running && !process.env.JOBS_NO_GEOCODE) void findCareersFor(id).catch(() => {});
     res.status(201).json(companyOut(id));
   }),
 );
@@ -1208,7 +1262,7 @@ function saveOpenings(companyId: number, source: 'linkedin' | 'website', found: 
 
 async function scanCompany(id: number) {
   const c = db
-    .prepare('SELECT id, name, linkedin, linkedin_id, website, careers_url, country, city FROM companies WHERE id = ?')
+    .prepare('SELECT id, name, linkedin, linkedin_id, website, careers_url, careers_found_url, country, city FROM companies WHERE id = ?')
     .get(id) as
     | {
         id: number;
@@ -1217,6 +1271,7 @@ async function scanCompany(id: number) {
         linkedin_id: string | null;
         website: string | null;
         careers_url: string | null;
+        careers_found_url: string | null;
         country: string | null;
         city: string | null;
       }
@@ -1263,7 +1318,8 @@ async function scanCompany(id: number) {
   } else notes.push('LinkedIn: no company page link');
 
   try {
-    const w = await websiteOpenings(c);
+    // A careers page found by "Find careers pages" is read too when you haven't typed one.
+    const w = await websiteOpenings({ ...c, careers_url: c.careers_url || c.careers_found_url });
     if (w.openings.length) {
       saveOpenings(id, 'website', w.openings);
       scanState.found += w.openings.length;

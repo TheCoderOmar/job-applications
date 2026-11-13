@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, type CareersStatus } from '../api';
 import type { Company, LogoStatus, ScanStatus } from '../types';
 import type { RefreshStatus } from '../api';
 import CompanyLogo from '../components/CompanyLogo';
@@ -25,6 +25,8 @@ export default function Companies() {
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const navigate = useNavigate();
   const [refreshAsked, setRefreshAsked] = useState(false);
+  const [careers, setCareers] = useState<CareersStatus | null>(null);
+  const [careersAsked, setCareersAsked] = useState(false);
 
   const load = () => api.companies().then(setCompanies);
   useEffect(() => {
@@ -32,7 +34,18 @@ export default function Companies() {
     api.logoStatus().then(setLogos);
     api.refreshStatus().then(setRefresh);
     api.scanStatus().then(setScan);
+    api.careersStatus().then(setCareers);
   }, []);
+
+  // While careers pages are being looked for, follow along so the cards get their careers links.
+  useEffect(() => {
+    if (!careers?.running) return;
+    const t = setTimeout(async () => {
+      setCareers(await api.careersStatus());
+      load();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [careers]);
 
   // While jobs are being looked up, follow along so each card's openings count goes up as they're found.
   useEffect(() => {
@@ -115,6 +128,20 @@ export default function Companies() {
               {refresh?.running ? `Refreshing from LinkedIn… ${refresh.done} of ${refresh.total}` : 'Refresh all from LinkedIn'}
             </button>
           )}
+          {companies.length > 0 && (
+            <button
+              className="btn-ghost"
+              disabled={!!careers?.running}
+              onClick={async () => {
+                setCareersAsked(true);
+                setCareers(await api.findCareers());
+              }}
+              title="Searches every company's website for its careers page and how it hires (Workday, Taleo, a careers email…), for companies that don't post on LinkedIn"
+            >
+              <Icon name="search" />
+              {careers?.running ? `Finding careers pages… ${careers.done} of ${careers.total}` : 'Find careers pages'}
+            </button>
+          )}
           {logos && (logos.running || logos.missing > 0) && (
             <button className="btn-ghost" disabled={logos.running} onClick={() => api.fetchMissingLogos().then(setLogos)}>
               <Icon name="download" />
@@ -137,6 +164,14 @@ export default function Companies() {
           <Link to="/openings" className="font-medium text-brand-light hover:underline">
             See openings →
           </Link>
+        </div>
+      )}
+
+      {careers && (careers.running || careersAsked) && (
+        <div className="card px-4 py-3 text-sm text-muted">
+          {careers.running
+            ? `Looking at ${careers.current ?? 'company'} websites (${careers.done} of ${careers.total}). ${careers.found} show how they hire so far; you can keep using the app.`
+            : `Done: ${careers.found} of ${careers.done} companies show how they hire (careers page, hiring system or email)${careers.done > careers.found ? '; the rest probably hire through LinkedIn only' : ''}. Find all jobs on LinkedIn now reads their careers pages too.`}
         </div>
       )}
 
@@ -225,6 +260,21 @@ export default function Companies() {
                       aria-label={`${c.name} on LinkedIn`}
                     >
                       <Icon name="linkedin" />
+                    </button>
+                  )}
+                  {(c.careers_url || c.careers_found_url) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.open((c.careers_url || c.careers_found_url)!, '_blank', 'noopener');
+                      }}
+                      className="hover:text-brand-light"
+                      aria-label={`${c.name} careers page`}
+                      title={`Careers page${c.hiring_via && c.hiring_via !== 'Careers page' ? ` (${c.hiring_via})` : ''}`}
+                    >
+                      <Icon name="briefcase" />
                     </button>
                   )}
                   <span title={`${c.job_count} logged in total`}>
